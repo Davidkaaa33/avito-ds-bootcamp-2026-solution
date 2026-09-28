@@ -149,7 +149,8 @@ assert np.array_equal(saved_ids.astype(str), item_ids)
 print("Embeddings:", item_embeddings.shape)
 
 
-# Для prototype нужны только warm queries, где есть хотя бы несколько известных positive items.
+# History prototype имеет смысл только для warm queries, где из train известны positive items.
+# Поэтому сначала выделяю такие запросы и отдельно формирую для них evaluation universe.
 print("\nСтроим warm-query universe...")
 query_item_counts = train.groupby(["_norm_query", "item_id"]).size().reset_index(name="count")
 unique_counts = query_item_counts.groupby("_norm_query")["item_id"].nunique()
@@ -175,7 +176,8 @@ query_text_map = (
 )
 
 
-# Историю и target разделяю детерминированно, чтобы один и тот же запуск давал одинаковую проверку.
+# Из известных positives часть оставляю как history, а часть использую как target.
+# Разбиение детерминированное, чтобы сравнение весов prototype не зависело от случайного запуска.
 print("\nBuilding history / target split...")
 query_groups = {
     query: group
@@ -242,7 +244,8 @@ for mc in list(microcat_to_indices):
     microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
 
 
-# Остальной answer4 пайплайн оставляю как есть — хочу измерить именно добавку от history prototype.
+# Все остальные компоненты answer4 фиксирую без изменений. Это нужно, чтобы measured delta
+# относилась именно к history prototype, а не к одновременной смене нескольких частей пайплайна.
 print("\nBuilding geo prior...")
 geo_counts = (
     train.groupby(["search_location_id", "item_location_id"], dropna=False).size().reset_index(name="count")
@@ -390,7 +393,8 @@ for i in tqdm(range(len(sample))):
         alt_mc_bge_top.append(np.array([], dtype=np.int64))
 
 
-# Prototype — это усреднённый embedding известных positive items; по нему ищу похожие кандидаты.
+# Для каждого warm query строю prototype как средний embedding его history items.
+# Затем использую этот вектор как дополнительный semantic query и получаю похожие benchmark candidates.
 print("\nHistory prototype retrieval...")
 prototype_vectors = []
 for i in tqdm(range(len(sample))):
@@ -413,7 +417,8 @@ for start in tqdm(range(0, len(sample), 20), desc="Prototype retrieval"):
         prototype_top.append(idx[order].astype(np.int64))
 
 
-# Сохраняю raw scores answer4, а потом поверх них добавляю prototype с разными весами.
+# Raw fusion scores answer4 считаю один раз, после чего добавляю один и тот же prototype source
+# с разными весами. Так grid получается быстрее и остаётся честным.
 print("\nBuilding answer4 raw scores...")
 raw_answer4_scores = []
 for i in tqdm(range(len(sample))):
