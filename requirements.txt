@@ -1,0 +1,10 @@
+numpy==2.5.3
+pandas==3.0.6
+pyarrow==25.0.1
+torch==2.14.0
+sentence-transformers==6.1.0
+bm25s==0.3.11
+PyStemmer==3.1.0
+joblib==1.6.0
+scikit-learn==1.9.1
+tqdm==4.70.1

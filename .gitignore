@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual environments / IDE
+.venv/
+venv/
+.idea/
+.vscode/
+
+# macOS
+.DS_Store
+
+# Challenge data / heavy artifacts
+data/*
+!data/README.md
+*.parquet
+*.npy
+*.npz
+*.joblib
+*.cbm
+*.pt
+*.pth
+*_bm25_index/
+
+# Temporary files
+*.log
+*.tmp
