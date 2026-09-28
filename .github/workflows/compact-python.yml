@@ -22,8 +22,7 @@ jobs:
       - name: Install Black
         run: pip install black==25.1.0
       - name: Format Python files
-        run: |
-          black --line-length 110             solution.py             build_train_assets.py             build_benchmark_assets.py             microcat_classifier.py             check_submission.py             experiments/*.py
+        run: black --line-length 110 --skip-magic-trailing-comma solution.py build_train_assets.py build_benchmark_assets.py microcat_classifier.py check_submission.py experiments/*.py
       - name: Commit formatting
         run: |
           if git diff --quiet; then
