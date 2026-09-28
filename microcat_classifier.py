@@ -1,5 +1,4 @@
 from pathlib import Path
-
 import joblib
 import numpy as np
 import pandas as pd
@@ -69,6 +68,5 @@ def main():
     joblib.dump(classifier, CLASSIFIER_PATH)
     print("Saved:", VECTORIZER_PATH)
     print("Saved:", CLASSIFIER_PATH)
-
 if __name__ == "__main__":
     main()

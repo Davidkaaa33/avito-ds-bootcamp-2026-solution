@@ -1,13 +1,11 @@
 from pathlib import Path
 from collections import defaultdict
-
 import bm25s
 import joblib
 import numpy as np
 import pandas as pd
 import Stemmer
 import torch
-
 from sentence_transformers import SentenceTransformer
 from sklearn.model_selection import GroupShuffleSplit
 from tqdm.auto import tqdm
@@ -50,7 +48,6 @@ CONFIRM_START = 16000
 CONFIRM_END = 19000
 
 def microcat_key(value):
-
     if pd.isna(value):
         return None
     try:
@@ -62,7 +59,6 @@ def microcat_key(value):
     return str(value)
 
 def add_rrf(scores, indices, weight):
-
     if weight == 0:
         return
     for rank, idx in enumerate(indices, start=1):
@@ -70,7 +66,6 @@ def add_rrf(scores, indices, weight):
         scores[idx] = scores.get(idx, 0.0) + weight / (RRF_K + rank)
 
 def top_k_indices(scores, indices, k):
-
     if len(indices) == 0:
         return np.array([], dtype=np.int64)
     k = min(k, len(indices))
@@ -82,43 +77,26 @@ def top_k_indices(scores, indices, k):
     return indices[pos[order]]
 
 def recall_at_50(indices, relevant, item_ids):
-
     predicted = set(item_ids[indices])
     return len(predicted & relevant) / len(relevant)
-
 if torch.backends.mps.is_available():
     DEVICE = "mps"
-
 elif torch.cuda.is_available():
     DEVICE = "cuda"
-
 else:
     DEVICE = "cpu"
-
 print("Device:", DEVICE)
-
 print("\nЗагружаем train...")
-
 train = pd.read_parquet(TRAIN_PATH)
-
 train["item_id"] = train["item_id"].astype(str)
-
 print("Rows:", len(train))
-
 splitter = GroupShuffleSplit(n_splits=1, test_size=0.10, random_state=RANDOM_STATE)
-
 train_idx, val_idx = next(splitter.split(train, groups=train["search_query"]))
-
 supervision = train.iloc[train_idx].copy()
-
 holdout = train.iloc[val_idx].copy()
-
 assert not (set(supervision["search_query"]) & set(holdout["search_query"]))
-
 print("Supervision rows:", len(supervision))
-
 print("Holdout rows:", len(holdout))
-
 QUERY_COLUMNS = [
     "search_query",
     "search_location_id",
@@ -126,28 +104,17 @@ QUERY_COLUMNS = [
     "search_infm_params_text",
     "search_category",
 ]
-
 val_groups = holdout.groupby(QUERY_COLUMNS, dropna=False)["item_id"].agg(set).reset_index(name="relevant_ids")
-
 shuffled = val_groups.sample(frac=1, random_state=123).reset_index(drop=True)
-
 assert len(shuffled) >= CONFIRM_END
-
 sample = shuffled.iloc[TUNE_START:CONFIRM_END].copy().reset_index(drop=True)
-
 N_TUNE = TUNE_END - TUNE_START
 N_CONFIRM = CONFIRM_END - CONFIRM_START
-
 print("\nTUNE range:", f"{TUNE_START}:{TUNE_END}")
-
 print("TUNE groups:", N_TUNE)
-
 print("CONFIRM range:", f"{CONFIRM_START}:{CONFIRM_END}")
-
 print("CONFIRM groups:", N_CONFIRM)
-
 print("Total evaluation groups:", len(sample))
-
 ITEM_COLUMNS = [
     "item_id",
     "item_title_raw",
@@ -156,91 +123,54 @@ ITEM_COLUMNS = [
     "item_location_id",
     "item_microcat_id",
 ]
-
 items = train[ITEM_COLUMNS].drop_duplicates("item_id").reset_index(drop=True)
-
 item_ids = items["item_id"].astype(str).to_numpy()
-
 item_locations = items["item_location_id"].to_numpy()
-
 item_microcats = np.asarray([microcat_key(x) for x in items["item_microcat_id"]], dtype=object)
-
 print("\nItems:", len(items))
-
 print("\nЗагружаем item embeddings...")
-
 item_embeddings = np.load(BGE_EMB_PATH)
-
 saved_ids = np.load(BGE_IDS_PATH, allow_pickle=True)
-
 assert len(item_embeddings) == len(items)
-
 assert np.array_equal(saved_ids.astype(str), item_ids)
-
 print("Embeddings:", item_embeddings.shape)
-
 location_to_indices = {}
-
 for location, group in items.groupby("item_location_id"):
-
     location_to_indices[location] = group.index.to_numpy(dtype=np.int64)
-
 microcat_to_indices = defaultdict(list)
-
 for idx, mc in enumerate(item_microcats):
-
     if mc is not None:
         microcat_to_indices[mc].append(idx)
-
 for mc in list(microcat_to_indices):
-
     microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
-
 print("\nСтроим geo prior...")
-
 geo_counts = (
     supervision.groupby(["search_location_id", "item_location_id"], dropna=False)
     .size()
     .reset_index(name="count")
 )
-
 geo_counts["total"] = geo_counts.groupby("search_location_id")["count"].transform("sum")
-
 geo_counts["prob"] = geo_counts["count"] / geo_counts["total"]
-
 geo_counts = geo_counts.sort_values(["search_location_id", "count"], ascending=[True, False])
-
 geo_map = {}
-
 for search_location, group in geo_counts.groupby("search_location_id"):
-
     alternatives = []
     for row in group.itertuples(index=False):
         if row.item_location_id == search_location:
             continue
         alternatives.append((row.item_location_id, float(row.prob)))
     geo_map[search_location] = alternatives[:GEO_TOP_N]
-
 print("\nЗагружаем BGE-M3...")
-
 model = SentenceTransformer("BAAI/bge-m3", device=DEVICE)
-
 model.max_seq_length = 128
-
 query_texts = sample["search_query"].fillna("").astype(str).tolist()
-
 print("\nКодируем 6000 queries...")
-
 query_embeddings = model.encode(
     query_texts, batch_size=64, normalize_embeddings=True, show_progress_bar=True, convert_to_numpy=True
 ).astype(np.float32)
-
 print("\nGlobal BGE...")
-
 global_bge_top = []
-
 for start in tqdm(range(0, len(sample), 20)):
-
     end = min(start + 20, len(sample))
     scores = query_embeddings[start:end] @ item_embeddings.T
     pos = np.argpartition(scores, -K_GLOBAL, axis=1)[:, -K_GLOBAL:]
@@ -248,15 +178,10 @@ for start in tqdm(range(0, len(sample), 20)):
         idx = pos[row]
         order = np.argsort(scores[row, idx])[::-1]
         global_bge_top.append(idx[order])
-
 print("Exact/ALT geo BGE...")
-
 local_bge_top = []
-
 alt_geo_bge_top = []
-
 for i in tqdm(range(len(sample))):
-
     search_location = sample.iloc[i]["search_location_id"]
     exact_indices = location_to_indices.get(search_location)
     if exact_indices is None or len(exact_indices) == 0:
@@ -272,69 +197,40 @@ for i in tqdm(range(len(sample))):
         alt_indices = np.unique(np.concatenate(pools))
         alt_scores = item_embeddings[alt_indices] @ query_embeddings[i]
         alt_geo_bge_top.append(top_k_indices(alt_scores, alt_indices, K_ALT_GEO_BGE))
-
 print("\nBM25...")
-
 retriever = bm25s.BM25.load(str(BM25_DIR), load_corpus=False)
-
 stemmer = Stemmer.Stemmer("russian")
-
 bm25_query_texts = (
     sample["search_query"].fillna("").astype(str)
     + " "
     + sample["search_infm_params_text"].fillna("").astype(str)
 ).tolist()
-
 tokens = bm25s.tokenize(bm25_query_texts, stopwords=None, stemmer=stemmer)
-
 bm25_wide, _ = retriever.retrieve(tokens, k=K_BM25_WIDE)
-
 global_bm25_top = bm25_wide[:, :K_GLOBAL]
-
 print("\nMicrocat classifier...")
-
 mc_vectorizer = joblib.load(MC_VECTORIZER_PATH)
-
 mc_classifier = joblib.load(MC_CLASSIFIER_PATH)
-
 X_mc = mc_vectorizer.transform(query_texts)
-
 decision = mc_classifier.decision_function(X_mc)
-
 classes = np.asarray([microcat_key(x) for x in mc_classifier.classes_], dtype=object)
-
 k_mc = min(TOP_MICROCATS, len(classes))
-
 positions = np.argpartition(decision, -k_mc, axis=1)[:, -k_mc:]
-
 predicted_microcats = []
-
 for i in range(len(sample)):
-
     pos = positions[i]
     order = np.argsort(decision[i, pos])[::-1]
     predicted_microcats.append(classes[pos[order]].tolist())
-
 print("\nСтроим retrieval sources...")
-
 local_bm25_top = []
-
 alt_geo_bm25_top = []
-
 microcat_bge_top = []
-
 exact_mc_bge_top = []
-
 alt_mc_bge_top = []
-
 exact_mc_bm25_top = []
-
 alt_mc_bm25_top = []
-
 microcat_sets = []
-
 for i in tqdm(range(len(sample))):
-
     search_location = sample.iloc[i]["search_location_id"]
     selected_mc = predicted_microcats[i]
     selected_mc_set = set(selected_mc)
@@ -386,13 +282,9 @@ for i in tqdm(range(len(sample))):
         else:
             scores = item_embeddings[alt_joint_indices] @ query_embeddings[i]
             alt_mc_bge_top.append(top_k_indices(scores, alt_joint_indices, K_JOINT_BGE))
-
 print("\nСтроим raw answer3 scores...")
-
 raw_answer3_scores = []
-
 for i in tqdm(range(len(sample))):
-
     scores = {}
     add_rrf(scores, global_bm25_top[i], 1.0)
     add_rrf(scores, global_bge_top[i], BGE_GLOBAL_WEIGHT)
@@ -404,7 +296,6 @@ for i in tqdm(range(len(sample))):
     raw_answer3_scores.append(scores)
 
 def rank_query(i, exact_bge_weight=0.0, exact_bm25_weight=0.0, alt_bge_weight=0.0, alt_bm25_weight=0.0):
-
     scores = dict(raw_answer3_scores[i])
     add_rrf(scores, exact_mc_bge_top[i], exact_bge_weight)
     add_rrf(scores, exact_mc_bm25_top[i], exact_bm25_weight)
@@ -434,7 +325,6 @@ def evaluate(
     baseline_tops=None,
     baseline_recalls=None,
 ):
-
     recalls = []
     tops = []
     improved = 0
@@ -469,23 +359,15 @@ def evaluate(
         "changed_items": changed_items,
         "changed_queries": changed_queries,
     }
-
 print("\n" + "=" * 100)
-
 print("ANSWER3 BASELINE")
-
 print("=" * 100)
-
 tune_base = evaluate(0, N_TUNE)
-
 confirm_base = evaluate(N_TUNE, N_TUNE + N_CONFIRM)
-
 print(f"TUNE answer3: " f"{tune_base['mean'] * 100:.3f}%")
-
 print(f"CONFIRM answer3: " f"{confirm_base['mean'] * 100:.3f}%")
 
 def run_grid(kind):
-
     rows = []
     print("\n" + "=" * 110)
     print(f"TUNE GRID: {kind}")
@@ -541,34 +423,21 @@ def run_grid(kind):
         .reset_index(drop=True)
     )
     return df
-
 exact_df = run_grid("EXACT_MC")
-
 print("\nBEST EXACT×MICROCAT:")
-
 print(exact_df.head(10).to_string(index=False))
-
 alt_df = run_grid("ALT_MC")
-
 print("\nBEST ALT×MICROCAT:")
-
 print(alt_df.head(10).to_string(index=False))
-
 best_exact = exact_df.iloc[0]
-
 best_alt = alt_df.iloc[0]
-
 EX_BGE = float(best_exact["bge_weight"])
 EX_BM25 = float(best_exact["bm25_weight"])
 ALT_BGE = float(best_alt["bge_weight"])
 ALT_BM25 = float(best_alt["bm25_weight"])
-
 print("\n" + "=" * 110)
-
 print("INDEPENDENT CONFIRMATION — NEVER USED FOR WEIGHT SELECTION")
-
 print("=" * 110)
-
 confirm_exact = evaluate(
     N_TUNE,
     N_TUNE + N_CONFIRM,
@@ -577,7 +446,6 @@ confirm_exact = evaluate(
     baseline_tops=confirm_base["tops"],
     baseline_recalls=confirm_base["recalls"],
 )
-
 confirm_alt = evaluate(
     N_TUNE,
     N_TUNE + N_CONFIRM,
@@ -586,7 +454,6 @@ confirm_alt = evaluate(
     baseline_tops=confirm_base["tops"],
     baseline_recalls=confirm_base["recalls"],
 )
-
 tune_combined = evaluate(
     0,
     N_TUNE,
@@ -597,7 +464,6 @@ tune_combined = evaluate(
     baseline_tops=tune_base["tops"],
     baseline_recalls=tune_base["recalls"],
 )
-
 confirm_combined = evaluate(
     N_TUNE,
     N_TUNE + N_CONFIRM,
@@ -610,7 +476,6 @@ confirm_combined = evaluate(
 )
 
 def print_result(name, result, baseline, n):
-
     delta = (result["mean"] - baseline["mean"]) * 100
     avg_changed = result["changed_items"] / n
     print(f"\n{name}")
@@ -620,39 +485,21 @@ def print_result(name, result, baseline, n):
     print("Worse:", result["worse"])
     print("Changed queries:", result["changed_queries"])
     print("Avg changed:", f"{avg_changed:.3f}")
-
 print("\nSELECTED FROM TUNE:")
-
 print("Exact-MC BGE:", EX_BGE)
-
 print("Exact-MC BM25:", EX_BM25)
-
 print("Alt-MC BGE:", ALT_BGE)
-
 print("Alt-MC BM25:", ALT_BM25)
-
 print_result("CONFIRM EXACT×MICROCAT", confirm_exact, confirm_base, N_CONFIRM)
-
 print_result("CONFIRM ALT×MICROCAT", confirm_alt, confirm_base, N_CONFIRM)
-
 print_result("TUNE COMBINED", tune_combined, tune_base, N_TUNE)
-
 print_result("CONFIRM COMBINED", confirm_combined, confirm_base, N_CONFIRM)
-
 print("\n" + "=" * 110)
-
 print("FINAL SUMMARY")
-
 print("=" * 110)
-
 print("Answer3 TUNE:", f"{tune_base['mean'] * 100:.3f}%")
-
 print("Answer3 CONFIRM:", f"{confirm_base['mean'] * 100:.3f}%")
-
 print("Combined TUNE:", f"{tune_combined['mean'] * 100:.3f}%")
-
 print("Combined CONFIRM:", f"{confirm_combined['mean'] * 100:.3f}%")
-
 print("Combined TUNE delta:", f"{(tune_combined['mean'] - tune_base['mean']) * 100:+.3f} pp")
-
 print("Combined CONFIRM delta:", f"{(confirm_combined['mean'] - confirm_base['mean']) * 100:+.3f} pp")

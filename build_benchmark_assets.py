@@ -1,5 +1,4 @@
 from pathlib import Path
-
 import bm25s
 import numpy as np
 import pandas as pd
@@ -82,6 +81,5 @@ def main():
     ensure_bge_assets(items, bge_texts)
     ensure_bm25_index(bm25_texts)
     print("Benchmark assets are ready.")
-
 if __name__ == "__main__":
     main()
