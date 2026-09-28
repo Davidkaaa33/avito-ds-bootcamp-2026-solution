@@ -14,6 +14,7 @@ from sentence_transformers import SentenceTransformer
 from tqdm.auto import tqdm
 
 def select_device():
+    """Choose the fastest available backend without changing retrieval logic."""
     if torch.cuda.is_available():
         return "cuda"
     if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
@@ -95,6 +96,7 @@ BGE_MAX_LENGTH = 128
 QUERY_BLOCK_SIZE = 20
 
 def norm_query(value):
+    """Normalize exact-query history keys consistently across train and benchmark."""
 
     if pd.isna(value):
         return ""
@@ -107,6 +109,7 @@ def norm_query(value):
     )
 
 def microcat_key(value):
+    """Convert microcategory identifiers to a stable string representation."""
 
     if pd.isna(value):
         return None
@@ -131,6 +134,7 @@ def add_rrf(
     indices,
     weight,
 ):
+    """Add one ranked candidate list to the weighted RRF accumulator."""
 
     for rank, idx in enumerate(
         indices,
@@ -158,6 +162,7 @@ def sorted_top_k(
     indices,
     k,
 ):
+    """Return candidate indices sorted by descending score without full sorting."""
 
     if len(indices) == 0:
 
@@ -198,16 +203,9 @@ def sorted_top_k(
         ]
     ]
 
-if torch.backends.mps.is_available():
-    DEVICE = "mps"
-
-elif torch.cuda.is_available():
-    DEVICE = "cuda"
-
-else:
-    DEVICE = "cpu"
-
 print("Device:", DEVICE)
+
+# Fail early if a derived asset was not built before running the final pipeline.
 
 required_paths = [
     TRAIN_PATH,
@@ -745,6 +743,7 @@ hist_counts = (
     )
 )
 
+# Repeated normalized queries get their observed benchmark items as a warm-start signal.
 history_items = (
     hist_counts
     .groupby(
@@ -863,6 +862,7 @@ geo_counts = (
     )
 )
 
+# Keep only the strongest non-exact locations observed for each search location.
 geo_map = {}
 
 for (
@@ -2030,124 +2030,7 @@ submission.to_csv(
     index=False,
 )
 
-print( "\n" + "=" * 80)
-
-print("V5 -> V6 DIFFERENCE")
-
-print( "=" * 80)
-
-if (
-    BASELINE_PATH.exists()
-):
-
-    baseline = pd.read_csv(
-        BASELINE_PATH
-    )
-
-    assert (
-        baseline[
-            "query_id"
-        ]
-        .astype(str)
-        .tolist()
-        ==
-        submission[
-            "query_id"
-        ]
-        .astype(str)
-        .tolist()
-    )
-
-    changed_queries = 0
-
-    total_replaced = 0
-
-    max_replaced = 0
-
-    for old_answer, new_answer in zip(
-        baseline[
-            "answer"
-        ],
-        submission[
-            "answer"
-        ],
-    ):
-
-        old_ids = set(
-            str(
-                old_answer
-            ).split()
-        )
-
-        new_ids = set(
-            str(
-                new_answer
-            ).split()
-        )
-
-        replaced = (
-            len(
-                old_ids
-                ^
-                new_ids
-            )
-            // 2
-        )
-
-        if (
-            replaced > 0
-        ):
-
-            changed_queries += 1
-
-        total_replaced += (
-            replaced
-        )
-
-        max_replaced = max(
-            max_replaced,
-            replaced,
-        )
-
-    avg_replaced_all = (
-        total_replaced
-        /
-        len(submission)
-    )
-
-    if (
-        changed_queries > 0
-    ):
-
-        avg_replaced_changed = (
-            total_replaced
-            /
-            changed_queries
-        )
-
-    else:
-
-        avg_replaced_changed = (
-            0.0
-        )
-
-    print( "Changed queries:",changed_queries, "/",len(submission),)
-
-    print( "Changed query %:",round(changed_queries / len(submission) * 100,2,), "%",)
-
-    print("Total replaced items:", total_replaced)
-
-    print( "Avg replaced / all queries:",round(avg_replaced_all,3,),)
-
-    print( "Avg replaced / changed query:",round(avg_replaced_changed,3,),)
-
-    print("Max replaced in one query:", max_replaced)
-
-else:
-
-    print( "answer.csv не найден — " "diff пропущен.")
-
-print( "\n" + "=" * 80)
+print("\n" + "=" * 80)
 
 print("ГОТОВО — FINAL ANSWER")
 

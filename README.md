@@ -25,11 +25,32 @@ The final pipeline combines several complementary signals:
 
 The strongest additions were accepted only after they improved a separate confirmation slice.
 
+## Features and rationale
+
+The retrieval signals were chosen from the structure of the task and validation results:
+
+- `search_query` — the primary lexical and semantic signal for matching user intent;
+- `search_infm_params_text` — additional service attributes that improve lexical matching;
+- `item_title_raw` — the most precise item-side text signal;
+- `item_description_raw` — broader semantic context for BGE retrieval;
+- `search_location_id` and `item_location_id` — a strong relevance signal for service search, used for exact and alternative geo retrieval;
+- `item_microcat_id` — narrows retrieval to the likely service type and supports joint location × microcategory candidate pools;
+- historical query-item interactions — used for exact-query history and history-prototype retrieval on repeated queries.
+
 ## Validation
 
 Most tuning used a query-disjoint split so that validation queries did not appear in the supervision part of the split. Different non-overlapping slices were used for tuning and independent confirmation.
 
-Ideas that were tested but not kept in the final pipeline included generic cross-encoder reranking, a fine-tuned reranker, field-specific BM25, conditional geo × microcategory priors, and query-to-query transfer.
+## Error analysis
+
+The main failure modes found during validation were:
+
+- global retrieval missed locally relevant listings, so exact-location and alternative-location retrieval were added;
+- semantic retrieval sometimes returned neighboring service types, so a microcategory classifier and joint location × microcategory retrieval were added;
+- exact-history helped only repeated queries directly, so embeddings of historical positive items were aggregated into query-specific prototypes to retrieve similar benchmark items;
+- some additional reranking ideas improved a tuning slice but did not transfer reliably to an independent holdout, so they were rejected.
+
+Rejected experiments included generic cross-encoder reranking, a fine-tuned reranker, field-specific BM25, conditional geo × microcategory priors, and query-to-query transfer.
 
 ## Repository layout
 
@@ -75,9 +96,9 @@ python solution.py
 python check_submission.py
 ```
 
-The final output is `answer.csv`.
+The final output is `answer.csv`. The repository also includes the exact submitted `answer.csv` as a reference artifact.
 
-Large task datasets, embeddings, model artifacts, and BM25 indexes are intentionally excluded from Git.
+Large task datasets, embeddings, model artifacts, and BM25 indexes are intentionally excluded from Git. The builder scripts reproduce the same feature construction and item ordering used by the final pipeline.
 
 ## Final result
 

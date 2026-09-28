@@ -1,15 +1,12 @@
-name: Syntax check
+name: Repository checks
 
 on:
-  push:
-    branches:
-      - cleanup/reproducible-solution
   pull_request:
     branches:
       - main
 
 jobs:
-  py-compile:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,3 +26,6 @@ jobs:
             experiments/*.py
       - name: Check whitespace errors
         run: git diff --check origin/main...HEAD
+      - name: Verify submitted answer is unchanged
+        run: |
+          echo "093072acc21b856f79a982cf67b1d7ffa9f57252387c1b99b4cdea7c66f05cd6  answer.csv" | sha256sum -c -

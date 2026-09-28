@@ -7,6 +7,7 @@ import Stemmer
 import torch
 from sentence_transformers import SentenceTransformer
 
+
 DATA_DIR = Path(__file__).resolve().parent / "data"
 TRAIN_PATH = DATA_DIR / "train.parquet"
 
@@ -21,47 +22,49 @@ ITEM_COLUMNS = [
     "item_id",
 ]
 
+
 def select_device():
+    """Choose CUDA, then Apple MPS, otherwise CPU."""
     if torch.cuda.is_available():
         return "cuda"
     if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
         return "mps"
     return "cpu"
 
+
 def load_items():
+    """Load unique train items in the exact order used by saved embeddings."""
     items = pd.read_parquet(TRAIN_PATH, columns=ITEM_COLUMNS)
     return items.drop_duplicates("item_id").reset_index(drop=True)
 
+
 def build_texts(items):
+    """Build the exact BGE and BM25 item representations used by the pipeline."""
     titles = items["item_title_raw"].fillna("").astype(str)
     params = items["item_infm_params_text"].fillna("").astype(str)
-    descriptions = (
-        items["item_description_raw"].fillna("").astype(str).str.slice(0, 600)
-    )
+    descriptions = items["item_description_raw"].fillna("").astype(str).str.slice(0, 600)
 
     bge_texts = (titles + ". " + params + ". " + descriptions).tolist()
-    bm25_texts = (
-        titles + " " + titles + " " + params + " " + descriptions
-    ).tolist()
+
+    # Duplicating the title gives the strongest lexical field extra BM25 weight.
+    bm25_texts = (titles + " " + titles + " " + params + " " + descriptions).tolist()
     return bge_texts, bm25_texts
 
+
 def ensure_bge_assets(items, texts):
+    """Create normalized BGE embeddings or validate the existing artifacts."""
     item_ids = items["item_id"].to_numpy()
 
     if BGE_EMBEDDINGS_PATH.exists() and BGE_ITEM_IDS_PATH.exists():
         embeddings = np.load(BGE_EMBEDDINGS_PATH, mmap_mode="r")
         saved_ids = np.load(BGE_ITEM_IDS_PATH, allow_pickle=True)
         if embeddings.shape[0] != len(items) or not np.array_equal(saved_ids, item_ids):
-            raise RuntimeError(
-                "Existing train BGE assets do not match train.parquet item order."
-            )
+            raise RuntimeError("Existing train BGE assets do not match train.parquet item order.")
         print("Train BGE assets already exist and are consistent.")
         return
 
     if BGE_EMBEDDINGS_PATH.exists() != BGE_ITEM_IDS_PATH.exists():
-        raise RuntimeError(
-            "Only one train BGE artifact exists. Remove the incomplete artifact and rerun."
-        )
+        raise RuntimeError("Only one train BGE artifact exists. Remove it and rerun.")
 
     device = select_device()
     print("Building train BGE embeddings on", device)
@@ -79,7 +82,9 @@ def ensure_bge_assets(items, texts):
     print("Saved:", BGE_EMBEDDINGS_PATH)
     print("Saved:", BGE_ITEM_IDS_PATH)
 
+
 def ensure_bm25_index(texts):
+    """Build the lexical retrieval index once."""
     if BM25_INDEX_PATH.exists():
         print("Train BM25 index already exists; skipping.")
         return
@@ -91,6 +96,7 @@ def ensure_bm25_index(texts):
     retriever.index(corpus_tokens)
     retriever.save(str(BM25_INDEX_PATH))
     print("Saved:", BM25_INDEX_PATH)
+
 
 def main():
     if not TRAIN_PATH.exists():
@@ -104,6 +110,7 @@ def main():
     ensure_bge_assets(items, bge_texts)
     ensure_bm25_index(bm25_texts)
     print("Train assets are ready.")
+
 
 if __name__ == "__main__":
     main()
