@@ -17,114 +17,71 @@ if ROOT.name == "data":
     ROOT = ROOT.parent
 
 DATA_DIR = ROOT / "data"
-
 TRAIN_PATH = DATA_DIR / "train.parquet"
-
 BGE_EMB_PATH = DATA_DIR / "train_bge_embeddings.npy"
 BGE_IDS_PATH = DATA_DIR / "train_bge_item_ids.npy"
 BM25_DIR = DATA_DIR / "train_bm25_index"
-
 MICROCAT_VECTORIZER_PATH = DATA_DIR / "microcat_vectorizer.joblib"
-
 MICROCAT_CLASSIFIER_PATH = DATA_DIR / "microcat_classifier.joblib"
-
 K_GLOBAL = 500
-
 K_LOCAL_BGE = 500
 K_LOCAL_BM25 = 500
-
 K_MICROCAT = 500
-
 K_BM25_WIDE = 10000
-
 TOP_MICROCATS = 5
-
 RRF_K = 60
-
 BGE_GLOBAL_WEIGHT = 1.0
-
 LOCAL_BGE_WEIGHT = 0.25
-
 LOCAL_BM25_WEIGHT = 1.25
-
 MICROCAT_SOURCE_WEIGHT = 0.25
-
 LOCATION_BONUS = 0.020
-
 MICROCAT_BONUS = 0.010
-
 GEO_TOP_N = 3
 GEO_WEIGHT = 0.060
-
 K_ALT_GEO_BGE = 500
 K_ALT_GEO_BM25 = 500
-
 ALT_BGE_WEIGHTS = [0.00, 0.10, 0.25, 0.50, 0.75, 1.00]
-
 ALT_BM25_WEIGHTS = [0.00, 0.25, 0.50, 0.75, 1.00, 1.25]
-
 RANDOM_STATE = 42
-
 FRESH_START = 10000
 FRESH_END = 13000
-
 
 def microcat_key(value):
 
     if pd.isna(value):
         return None
-
     try:
         x = float(value)
-
         if x.is_integer():
             return str(int(x))
-
     except (TypeError, ValueError):
         pass
-
     return str(value)
-
 
 def add_rrf(scores, indices, weight):
 
     if weight == 0:
         return
-
     for rank, idx in enumerate(indices, start=1):
-
         idx = int(idx)
-
         scores[idx] = scores.get(idx, 0.0) + weight / (RRF_K + rank)
-
 
 def top_k_indices(scores, indices, k):
 
     if len(indices) == 0:
-
         return np.array([], dtype=np.int64)
-
     k = min(k, len(indices))
-
     if k == len(indices):
-
         order = np.argsort(scores)[::-1]
-
         return indices[order]
-
     pos = np.argpartition(scores, -k)[-k:]
-
     order = np.argsort(scores[pos])[::-1]
-
     return indices[pos[order]]
-
 
 def recall_at_50(top_indices, relevant, item_ids):
 
     predicted = set(item_ids[top_indices])
-
     return len(predicted & relevant) / len(relevant)
-
 
 if torch.backends.mps.is_available():
     DEVICE = "mps"
@@ -227,7 +184,6 @@ microcat_to_indices = defaultdict(list)
 for idx, mc in enumerate(item_microcats):
 
     if mc is not None:
-
         microcat_to_indices[mc].append(idx)
 
 for mc in list(microcat_to_indices):
@@ -253,14 +209,10 @@ geo_map = {}
 for search_location, group in geo_counts.groupby("search_location_id"):
 
     alternatives = []
-
     for row in group.itertuples(index=False):
-
         if row.item_location_id == search_location:
             continue
-
         alternatives.append((row.item_location_id, float(row.prob)))
-
     geo_map[search_location] = alternatives[:GEO_TOP_N]
 
 print("\nЗагружаем BGE-M3...")
@@ -284,17 +236,11 @@ global_bge_top = []
 for start in tqdm(range(0, len(sample), 20)):
 
     end = min(start + 20, len(sample))
-
     scores = query_embeddings[start:end] @ item_embeddings.T
-
     pos = np.argpartition(scores, -K_GLOBAL, axis=1)[:, -K_GLOBAL:]
-
     for row in range(end - start):
-
         idx = pos[row]
-
         order = np.argsort(scores[row, idx])[::-1]
-
         global_bge_top.append(idx[order])
 
 print("Exact-location BGE...")
@@ -304,17 +250,11 @@ local_bge_top = []
 for i in tqdm(range(len(sample))):
 
     search_location = sample.iloc[i]["search_location_id"]
-
     indices = location_to_indices.get(search_location)
-
     if indices is None or len(indices) == 0:
-
         local_bge_top.append(np.array([], dtype=np.int64))
-
         continue
-
     scores = item_embeddings[indices] @ query_embeddings[i]
-
     local_bge_top.append(top_k_indices(scores, indices, K_LOCAL_BGE))
 
 print("\nAlternative-GEO BGE...")
@@ -324,21 +264,13 @@ alt_geo_bge_top = []
 for i in tqdm(range(len(sample))):
 
     search_location = sample.iloc[i]["search_location_id"]
-
     alt_locations = [loc for loc, _ in geo_map.get(search_location, [])]
-
     pools = [location_to_indices[loc] for loc in alt_locations if loc in location_to_indices]
-
     if not pools:
-
         alt_geo_bge_top.append(np.array([], dtype=np.int64))
-
         continue
-
     alt_indices = np.unique(np.concatenate(pools))
-
     alt_scores = item_embeddings[alt_indices] @ query_embeddings[i]
-
     alt_geo_bge_top.append(top_k_indices(alt_scores, alt_indices, K_ALT_GEO_BGE))
 
 print("\nЗагружаем BM25...")
@@ -370,32 +302,19 @@ alt_geo_bm25_top = []
 for i in tqdm(range(len(sample))):
 
     search_location = sample.iloc[i]["search_location_id"]
-
     alt_location_set = set(loc for loc, _ in geo_map.get(search_location, []))
-
     exact_candidates = []
-
     alt_candidates = []
-
     for idx in bm25_wide[i]:
-
         idx = int(idx)
-
         item_location = item_locations[idx]
-
         if item_location == search_location and len(exact_candidates) < K_LOCAL_BM25:
-
             exact_candidates.append(idx)
-
         if item_location in alt_location_set and len(alt_candidates) < K_ALT_GEO_BM25:
-
             alt_candidates.append(idx)
-
         if len(exact_candidates) >= K_LOCAL_BM25 and len(alt_candidates) >= K_ALT_GEO_BM25:
             break
-
     local_bm25_top.append(np.asarray(exact_candidates, dtype=np.int64))
-
     alt_geo_bm25_top.append(np.asarray(alt_candidates, dtype=np.int64))
 
 print("\nMicrocat classifier...")
@@ -419,9 +338,7 @@ predicted_microcats = []
 for i in range(len(sample)):
 
     pos = positions[i]
-
     order = np.argsort(decision[i, pos])[::-1]
-
     predicted_microcats.append(classes[pos[order]].tolist())
 
 print("Microcat BGE...")
@@ -433,21 +350,13 @@ microcat_sets = []
 for i in tqdm(range(len(sample))):
 
     selected = predicted_microcats[i]
-
     microcat_sets.append(set(selected))
-
     pools = [microcat_to_indices[mc] for mc in selected if mc in microcat_to_indices]
-
     if not pools:
-
         microcat_bge_top.append(np.array([], dtype=np.int64))
-
         continue
-
     indices = np.unique(np.concatenate(pools))
-
     scores = item_embeddings[indices] @ query_embeddings[i]
-
     microcat_bge_top.append(top_k_indices(scores, indices, K_MICROCAT))
 
 print("\nСтроим answer2 baseline...")
@@ -461,51 +370,28 @@ answer2_recalls = []
 for i in tqdm(range(len(sample))):
 
     scores = {}
-
     add_rrf(scores, global_bm25_top[i], 1.0)
-
     add_rrf(scores, global_bge_top[i], BGE_GLOBAL_WEIGHT)
-
     add_rrf(scores, local_bge_top[i], LOCAL_BGE_WEIGHT)
-
     add_rrf(scores, local_bm25_top[i], LOCAL_BM25_WEIGHT)
-
     add_rrf(scores, microcat_bge_top[i], MICROCAT_SOURCE_WEIGHT)
-
     search_location = sample.iloc[i]["search_location_id"]
-
     selected_microcats = microcat_sets[i]
-
     geo_prob = {loc: prob for loc, prob in geo_map.get(search_location, [])}
-
     for idx in scores:
-
         item_location = item_locations[idx]
-
         if item_location == search_location:
-
             scores[idx] += LOCATION_BONUS
-
         if item_microcats[idx] in selected_microcats:
-
             scores[idx] += MICROCAT_BONUS
-
         probability = geo_prob.get(item_location)
-
         if probability is not None:
-
             scores[idx] += GEO_WEIGHT * probability
-
     ranked = sorted(scores, key=scores.get, reverse=True)[:50]
-
     relevant = sample.iloc[i]["relevant_ids"]
-
     recall = recall_at_50(ranked, relevant, item_ids)
-
     answer2_scores.append(scores)
-
     answer2_top.append(ranked)
-
     answer2_recalls.append(recall)
 
 answer2_recalls = np.asarray(answer2_recalls)
@@ -531,60 +417,33 @@ results = []
 for bge_weight in ALT_BGE_WEIGHTS:
 
     for bm25_weight in ALT_BM25_WEIGHTS:
-
         if bge_weight == 0 and bm25_weight == 0:
             continue
-
         recalls = []
-
         improved = 0
-
         worse = 0
-
         total_changed = 0
-
         changed_queries = 0
-
         for i in range(len(sample)):
-
             scores = dict(answer2_scores[i])
-
             add_rrf(scores, alt_geo_bge_top[i], bge_weight)
-
             add_rrf(scores, alt_geo_bm25_top[i], bm25_weight)
-
             ranked = sorted(scores, key=scores.get, reverse=True)[:50]
-
             relevant = sample.iloc[i]["relevant_ids"]
-
             recall = recall_at_50(ranked, relevant, item_ids)
-
             recalls.append(recall)
-
             old_recall = answer2_recalls[i]
-
             if recall > old_recall:
-
                 improved += 1
-
             elif recall < old_recall:
-
                 worse += 1
-
             changed = len(set(answer2_top[i]) ^ set(ranked)) // 2
-
             total_changed += changed
-
             if changed > 0:
-
                 changed_queries += 1
-
         mean_recall = float(np.mean(recalls))
-
         delta = (mean_recall - answer2_mean) * 100
-
         avg_changed = total_changed / len(sample)
-
         results.append(
             {
                 "bge_weight": bge_weight,
@@ -597,7 +456,6 @@ for bge_weight in ALT_BGE_WEIGHTS:
                 "avg_changed": avg_changed,
             }
         )
-
         print(
             f"BGE={bge_weight:>4.2f} | "
             f"BM25={bm25_weight:>4.2f} | "

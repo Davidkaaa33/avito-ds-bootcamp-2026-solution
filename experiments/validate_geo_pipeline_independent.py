@@ -18,99 +18,58 @@ if ROOT.name == "data":
     ROOT = ROOT.parent
 
 DATA_DIR = ROOT / "data"
-
 TRAIN_PATH = DATA_DIR / "train.parquet"
-
 BGE_EMB_PATH = DATA_DIR / "train_bge_embeddings.npy"
-
 BGE_IDS_PATH = DATA_DIR / "train_bge_item_ids.npy"
-
 BM25_DIR = DATA_DIR / "train_bm25_index"
-
 MICROCAT_VECTORIZER_PATH = DATA_DIR / "microcat_vectorizer.joblib"
-
 MICROCAT_CLASSIFIER_PATH = DATA_DIR / "microcat_classifier.joblib"
-
 K_GLOBAL = 500
-
 K_LOCAL_BGE = 500
-
 K_LOCAL_BM25 = 500
-
 K_MICROCAT = 500
-
 K_BM25_WIDE = 10000
-
 TOP_MICROCATS = 5
-
 RRF_K = 60
-
 BGE_GLOBAL_WEIGHT = 1.0
-
 LOCAL_BGE_WEIGHT = 0.25
-
 LOCAL_BM25_WEIGHT = 1.25
-
 MICROCAT_SOURCE_WEIGHT = 0.25
-
 LOCATION_BONUS = 0.020
-
 MICROCAT_BONUS = 0.010
-
 GEO_TOP_NS = [1, 3, 5]
-
 GEO_WEIGHTS = [0.020, 0.035, 0.060, 0.080, 0.100, 0.120]
-
 RANDOM_STATE = 42
-
 
 def microcat_key(value):
 
     if pd.isna(value):
         return None
-
     try:
-
         x = float(value)
-
         if x.is_integer():
             return str(int(x))
-
     except (TypeError, ValueError):
         pass
-
     return str(value)
-
 
 def add_rrf(scores, indices, weight):
 
     for rank, idx in enumerate(indices, start=1):
-
         idx = int(idx)
-
         scores[idx] = scores.get(idx, 0.0) + weight / (RRF_K + rank)
-
 
 def top_k_indices(scores, indices, k):
 
     if len(indices) == 0:
-
         return np.array([], dtype=np.int64)
-
     k = min(k, len(indices))
-
     if k == len(indices):
-
         order = np.argsort(scores)[::-1]
-
         return indices[order]
-
     positions = np.argpartition(scores, -k)[-k:]
-
     order = np.argsort(scores[positions])[::-1]
-
     return indices[positions[order]]
-
 
 if torch.backends.mps.is_available():
     DEVICE = "mps"
@@ -220,7 +179,6 @@ for idx, mc in enumerate(item_microcats):
 
     if mc is None:
         continue
-
     microcat_to_indices[mc].append(idx)
 
 for mc in list(microcat_to_indices):
@@ -246,15 +204,10 @@ geo_map = {}
 for search_location, group in geo_counts.groupby("search_location_id"):
 
     values = []
-
     for row in group.itertuples(index=False):
-
         if row.item_location_id == search_location:
-
             continue
-
         values.append((row.item_location_id, float(row.prob)))
-
     geo_map[search_location] = values
 
 print("Geo search locations:", len(geo_map))
@@ -280,19 +233,12 @@ global_bge_top = []
 for start in tqdm(range(0, len(sample), 20)):
 
     end = min(start + 20, len(sample))
-
     scores = query_embeddings[start:end] @ item_embeddings.T
-
     k = min(K_GLOBAL, len(items))
-
     positions = np.argpartition(scores, -k, axis=1)[:, -k:]
-
     for row in range(end - start):
-
         idx = positions[row]
-
         order = np.argsort(scores[row, idx])[::-1]
-
         global_bge_top.append(idx[order])
 
 print("\nLocal BGE top-500...")
@@ -302,17 +248,11 @@ local_bge_top = []
 for i in tqdm(range(len(sample))):
 
     search_location = sample.iloc[i]["search_location_id"]
-
     local_indices = location_to_indices.get(search_location)
-
     if local_indices is None or len(local_indices) == 0:
-
         local_bge_top.append(np.array([], dtype=np.int64))
-
         continue
-
     local_scores = item_embeddings[local_indices] @ query_embeddings[i]
-
     local_bge_top.append(top_k_indices(local_scores, local_indices, K_LOCAL_BGE))
 
 print("\nЗагружаем BM25...")
@@ -342,20 +282,13 @@ local_bm25_top = []
 for i in tqdm(range(len(sample))):
 
     search_location = sample.iloc[i]["search_location_id"]
-
     candidates = []
-
     for idx in bm25_wide[i]:
-
         idx = int(idx)
-
         if item_locations[idx] == search_location:
-
             candidates.append(idx)
-
             if len(candidates) >= K_LOCAL_BM25:
                 break
-
     local_bm25_top.append(np.asarray(candidates, dtype=np.int64))
 
 print("\nMicrocat classifier...")
@@ -379,9 +312,7 @@ predicted_microcats = []
 for i in range(len(sample)):
 
     pos = mc_positions[i]
-
     order = np.argsort(decision[i, pos])[::-1]
-
     predicted_microcats.append(classes[pos[order]].tolist())
 
 print("Microcat BGE candidates...")
@@ -393,23 +324,14 @@ microcat_sets = []
 for i in tqdm(range(len(sample))):
 
     selected = predicted_microcats[i]
-
     selected_set = set(selected)
-
     microcat_sets.append(selected_set)
-
     pools = [microcat_to_indices[mc] for mc in selected if mc in microcat_to_indices]
-
     if not pools:
-
         microcat_bge_top.append(np.array([], dtype=np.int64))
-
         continue
-
     candidate_indices = np.unique(np.concatenate(pools))
-
     candidate_scores = item_embeddings[candidate_indices] @ query_embeddings[i]
-
     microcat_bge_top.append(top_k_indices(candidate_scores, candidate_indices, K_MICROCAT))
 
 print("\nСтроим baseline fusion...")
@@ -423,45 +345,25 @@ baseline_recalls = []
 for i in tqdm(range(len(sample))):
 
     scores = {}
-
     add_rrf(scores, global_bm25_top[i], 1.0)
-
     add_rrf(scores, global_bge_top[i], BGE_GLOBAL_WEIGHT)
-
     add_rrf(scores, local_bge_top[i], LOCAL_BGE_WEIGHT)
-
     add_rrf(scores, local_bm25_top[i], LOCAL_BM25_WEIGHT)
-
     add_rrf(scores, microcat_bge_top[i], MICROCAT_SOURCE_WEIGHT)
-
     search_location = sample.iloc[i]["search_location_id"]
-
     selected_microcats = microcat_sets[i]
-
     for idx in scores:
-
         if item_locations[idx] == search_location:
-
             scores[idx] += LOCATION_BONUS
-
         if item_microcats[idx] in selected_microcats:
-
             scores[idx] += MICROCAT_BONUS
-
     ranked = sorted(scores, key=scores.get, reverse=True)
-
     top50 = ranked[:50]
-
     baseline_top50.append(top50)
-
     relevant = sample.iloc[i]["relevant_ids"]
-
     predicted = set(item_ids[top50])
-
     recall = len(predicted & relevant) / len(relevant)
-
     baseline_recalls.append(recall)
-
     base_scores.append(scores)
 
 baseline_mean = float(np.mean(baseline_recalls))
@@ -485,75 +387,40 @@ results = []
 for top_n in GEO_TOP_NS:
 
     for weight in GEO_WEIGHTS:
-
         recalls = []
-
         improved = 0
-
         worse = 0
-
         same = 0
-
         total_changed = 0
-
         for i in range(len(sample)):
-
             search_location = sample.iloc[i]["search_location_id"]
-
             geo_values = geo_map.get(search_location, [])[:top_n]
-
             geo_probabilities = {location: probability for (location, probability) in geo_values}
-
             scores = dict(base_scores[i])
-
             for idx in scores:
-
                 item_location = item_locations[idx]
-
                 probability = geo_probabilities.get(item_location)
-
                 if probability is not None:
-
                     scores[idx] += weight * probability
-
             ranked = sorted(scores, key=scores.get, reverse=True)
-
             top50 = ranked[:50]
-
             old_top = set(baseline_top50[i])
-
             new_top = set(top50)
-
             total_changed += len(old_top ^ new_top) // 2
-
             relevant = sample.iloc[i]["relevant_ids"]
-
             predicted = set(item_ids[top50])
-
             recall = len(predicted & relevant) / len(relevant)
-
             recalls.append(recall)
-
             old_recall = baseline_recalls[i]
-
             if recall > old_recall:
-
                 improved += 1
-
             elif recall < old_recall:
-
                 worse += 1
-
             else:
-
                 same += 1
-
         mean_recall = float(np.mean(recalls))
-
         delta_pp = (mean_recall - baseline_mean) * 100
-
         avg_changed = total_changed / len(sample)
-
         results.append(
             {
                 "top_n": top_n,
@@ -566,7 +433,6 @@ for top_n in GEO_TOP_NS:
                 "avg_changed": avg_changed,
             }
         )
-
         print(
             f"topN={top_n:<2} | "
             f"weight={weight:>6.3f} | "
