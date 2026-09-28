@@ -32,7 +32,8 @@ def build_texts(items):
     params = items["item_infm_params_text"].fillna("").astype(str)
     descriptions = items["item_description_raw"].fillna("").astype(str).str.slice(0, 600)
     bge_texts = (titles + ". " + params + ". " + descriptions).tolist()
-    # Title здесь тоже дублирую — это тот же lexical weighting, который использовался при подборе пайплайна.
+    # Для benchmark использую ровно ту же схему текста, что и для train.
+    # Title также дублирую, чтобы lexical weighting не отличался между двумя корпусами.
     bm25_texts = (titles + " " + titles + " " + params + " " + descriptions).tolist()
     return bge_texts, bm25_texts
 
@@ -73,7 +74,8 @@ def ensure_bm25_index(texts):
 
 
 
-# Основной сценарий простой: загрузить items, собрать тексты, затем BGE и BM25.
+# Здесь воспроизводится подготовка benchmark-части: сначала фиксируется порядок items,
+# затем для этого же порядка строятся BGE embeddings и BM25 index.
 def main():
     if not ITEMS_PATH.exists():
         raise FileNotFoundError(f"Missing input file: {ITEMS_PATH}")
