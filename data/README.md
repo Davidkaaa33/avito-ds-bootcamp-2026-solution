@@ -1,21 +1,40 @@
 # Data
 
-The original Avito Data Science Bootcamp dataset is not committed to GitHub.
+The original task data and generated heavy artifacts are intentionally excluded from Git.
 
-Place the task data and generated artifacts inside this directory.
+## Input files supplied by the task
 
-Expected files:
+Place these files in this directory:
 
-- train.parquet
-- benchmark_queries.parquet
-- benchmark_items.parquet
-- train_bge_embeddings.npy
-- train_bge_item_ids.npy
-- train_bm25_index/
-- benchmark_bge_embeddings.npy
-- benchmark_bge_item_ids.npy
-- benchmark_bm25_index/
-- microcat_vectorizer.joblib
-- microcat_classifier.joblib
+```text
+train.parquet
+benchmark_queries.parquet
+benchmark_items.parquet
+```
 
-Large datasets, embeddings and indexes are excluded from Git.
+## Generated artifacts
+
+`build_train_assets.py` creates:
+
+```text
+train_bge_embeddings.npy
+train_bge_item_ids.npy
+train_bm25_index/
+```
+
+`microcat_classifier.py` creates:
+
+```text
+microcat_vectorizer.joblib
+microcat_classifier.joblib
+```
+
+`build_benchmark_assets.py` creates:
+
+```text
+benchmark_bge_embeddings.npy
+benchmark_bge_item_ids.npy
+benchmark_bm25_index/
+```
+
+The builders preserve the item order used by the final retrieval pipeline.

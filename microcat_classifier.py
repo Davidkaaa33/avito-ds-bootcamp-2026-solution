@@ -9,13 +9,7 @@ from sklearn.pipeline import FeatureUnion
 from sklearn.svm import LinearSVC
 from sklearn.model_selection import GroupShuffleSplit
 
-
 DATA_DIR = Path(__file__).resolve().parent / "data"
-
-
-# =========================================================
-# 1. LOAD DATA
-# =========================================================
 
 print("Загружаем train...")
 
@@ -26,11 +20,6 @@ df = pd.read_parquet(
         "item_microcat_id",
     ]
 )
-
-
-# =========================================================
-# 2. SPLIT ПО SEARCH QUERY
-# =========================================================
 
 splitter = GroupShuffleSplit(
     n_splits=1,
@@ -48,9 +37,6 @@ train_idx, val_idx = next(
 train_df = df.iloc[train_idx].copy()
 val_df = df.iloc[val_idx].copy()
 
-
-# Удаляем полностью одинаковые пары
-# query -> microcat
 train_pairs = (
     train_df[
         ["search_query", "item_microcat_id"]
@@ -60,11 +46,6 @@ train_pairs = (
 )
 
 print("Train pairs:", len(train_pairs))
-
-
-# =========================================================
-# 3. TF-IDF FEATURES
-# =========================================================
 
 print("Строим TF-IDF признаки...")
 
@@ -91,7 +72,6 @@ vectorizer = FeatureUnion([
     ),
 ])
 
-
 X_train = vectorizer.fit_transform(
     train_pairs["search_query"]
 )
@@ -102,11 +82,6 @@ y_train = (
 )
 
 print("Размер признаков:", X_train.shape)
-
-
-# =========================================================
-# 4. TRAIN CLASSIFIER
-# =========================================================
 
 print("Обучаем microcat classifier...")
 
@@ -121,11 +96,6 @@ classifier.fit(
 
 print("Classifier обучен.")
 
-
-# =========================================================
-# 5. VALIDATION TRUTH
-# =========================================================
-
 val_queries = (
     val_df.groupby("search_query")[
         "item_microcat_id"
@@ -134,15 +104,7 @@ val_queries = (
     .reset_index(name="true_microcats")
 )
 
-print(
-    "Validation queries:",
-    len(val_queries)
-)
-
-
-# =========================================================
-# 6. PREDICT
-# =========================================================
+print( "Validation queries:",len(val_queries))
 
 X_val = vectorizer.transform(
     val_queries["search_query"]
@@ -153,11 +115,6 @@ scores = classifier.decision_function(
 )
 
 classes = classifier.classes_
-
-
-# =========================================================
-# 7. TOP-K METRICS
-# =========================================================
 
 for k in [1, 2, 3, 5, 10]:
 
@@ -193,32 +150,12 @@ for k in [1, 2, 3, 5, 10]:
             len(predicted & truth) > 0
         )
 
-
     print()
     print(f"TOP-{k}")
 
-    print(
-        "Mean microcat recall:",
-        round(
-            np.mean(recalls) * 100,
-            2
-        ),
-        "%"
-    )
+    print( "Mean microcat recall:",round(np.mean(recalls) * 100,2), "%")
 
-    print(
-        "Queries with >=1 correct microcat:",
-        round(
-            np.mean(hit) * 100,
-            2
-        ),
-        "%"
-    )
-
-
-# =========================================================
-# 8. SAVE MODEL
-# =========================================================
+    print( "Queries with >=1 correct microcat:",round(np.mean(hit) * 100,2), "%")
 
 joblib.dump(
     vectorizer,

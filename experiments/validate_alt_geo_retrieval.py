@@ -12,11 +12,6 @@ from sentence_transformers import SentenceTransformer
 from sklearn.model_selection import GroupShuffleSplit
 from tqdm.auto import tqdm
 
-
-# =========================================================
-# CONFIG
-# =========================================================
-
 ROOT = Path(__file__).resolve().parent
 if ROOT.name == "data":
     ROOT = ROOT.parent
@@ -29,18 +24,9 @@ BGE_EMB_PATH = DATA_DIR / "train_bge_embeddings.npy"
 BGE_IDS_PATH = DATA_DIR / "train_bge_item_ids.npy"
 BM25_DIR = DATA_DIR / "train_bm25_index"
 
-MICROCAT_VECTORIZER_PATH = (
-    DATA_DIR / "microcat_vectorizer.joblib"
-)
+MICROCAT_VECTORIZER_PATH = DATA_DIR / "microcat_vectorizer.joblib"
 
-MICROCAT_CLASSIFIER_PATH = (
-    DATA_DIR / "microcat_classifier.joblib"
-)
-
-
-# =========================================================
-# CURRENT ANSWER2 PIPELINE
-# =========================================================
+MICROCAT_CLASSIFIER_PATH = DATA_DIR / "microcat_classifier.joblib"
 
 K_GLOBAL = 500
 
@@ -55,7 +41,6 @@ TOP_MICROCATS = 5
 
 RRF_K = 60
 
-
 BGE_GLOBAL_WEIGHT = 1.0
 
 LOCAL_BGE_WEIGHT = 0.25
@@ -64,23 +49,12 @@ LOCAL_BM25_WEIGHT = 1.25
 
 MICROCAT_SOURCE_WEIGHT = 0.25
 
-
 LOCATION_BONUS = 0.020
 
 MICROCAT_BONUS = 0.010
 
-
-# =========================================================
-# CURRENT GEO — ANSWER2
-# =========================================================
-
 GEO_TOP_N = 3
 GEO_WEIGHT = 0.060
-
-
-# =========================================================
-# NEW ALT-GEO RETRIEVAL
-# =========================================================
 
 K_ALT_GEO_BGE = 500
 K_ALT_GEO_BM25 = 500
@@ -103,27 +77,10 @@ ALT_BM25_WEIGHTS = [
     1.25,
 ]
 
-
-# =========================================================
-# COMPLETELY FRESH HOLDOUT
-# =========================================================
-
 RANDOM_STATE = 42
 
-# Уже использовали:
-# 0:1000
-# 1000:4000
-# 4000:7000
-# 7000:10000
-#
-# Новый:
 FRESH_START = 10000
 FRESH_END = 13000
-
-
-# =========================================================
-# HELPERS
-# =========================================================
 
 def microcat_key(value):
 
@@ -140,7 +97,6 @@ def microcat_key(value):
         pass
 
     return str(value)
-
 
 def add_rrf(
     scores,
@@ -171,7 +127,6 @@ def add_rrf(
                 + rank
             )
         )
-
 
 def top_k_indices(
     scores,
@@ -214,7 +169,6 @@ def top_k_indices(
         pos[order]
     ]
 
-
 def recall_at_50(
     top_indices,
     relevant,
@@ -239,11 +193,6 @@ def recall_at_50(
         )
     )
 
-
-# =========================================================
-# DEVICE
-# =========================================================
-
 if torch.backends.mps.is_available():
     DEVICE = "mps"
 
@@ -253,26 +202,13 @@ elif torch.cuda.is_available():
 else:
     DEVICE = "cpu"
 
+print("Device:", DEVICE)
 
-print(
-    "Device:",
-    DEVICE,
-)
-
-
-# =========================================================
-# LOAD TRAIN
-# =========================================================
-
-print(
-    "\nЗагружаем train..."
-)
-
+print("\nЗагружаем train...")
 
 train = pd.read_parquet(
     TRAIN_PATH
 )
-
 
 train["item_id"] = (
     train[
@@ -281,28 +217,15 @@ train["item_id"] = (
     .astype(str)
 )
 
+print( "Rows:",len(train),)
 
-print(
-    "Rows:",
-    len(train),
-)
-
-
-# =========================================================
-# QUERY-DISJOINT SPLIT
-# =========================================================
-
-print(
-    "\nСтроим query-disjoint split..."
-)
-
+print("\nСтроим query-disjoint split...")
 
 splitter = GroupShuffleSplit(
     n_splits=1,
     test_size=0.10,
     random_state=RANDOM_STATE,
 )
-
 
 train_idx, val_idx = next(
     splitter.split(
@@ -313,7 +236,6 @@ train_idx, val_idx = next(
     )
 )
 
-
 supervision = (
     train.iloc[
         train_idx
@@ -321,14 +243,12 @@ supervision = (
     .copy()
 )
 
-
 holdout = (
     train.iloc[
         val_idx
     ]
     .copy()
 )
-
 
 assert not (
     set(
@@ -344,21 +264,9 @@ assert not (
     )
 )
 
+print( "Supervision rows:",len(supervision),)
 
-print(
-    "Supervision rows:",
-    len(supervision),
-)
-
-print(
-    "Holdout rows:",
-    len(holdout),
-)
-
-
-# =========================================================
-# HOLDOUT GROUPS
-# =========================================================
+print( "Holdout rows:",len(holdout),)
 
 QUERY_COLUMNS = [
     "search_query",
@@ -367,7 +275,6 @@ QUERY_COLUMNS = [
     "search_infm_params_text",
     "search_category",
 ]
-
 
 val_groups = (
     holdout
@@ -383,7 +290,6 @@ val_groups = (
     )
 )
 
-
 shuffled = (
     val_groups
     .sample(
@@ -395,12 +301,10 @@ shuffled = (
     )
 )
 
-
 assert (
     len(shuffled)
     >= FRESH_END
 )
-
 
 sample = (
     shuffled
@@ -413,21 +317,9 @@ sample = (
     )
 )
 
+print( "Fresh validation range:",f"{FRESH_START}:{FRESH_END}",)
 
-print(
-    "Fresh validation range:",
-    f"{FRESH_START}:{FRESH_END}",
-)
-
-print(
-    "Fresh validation groups:",
-    len(sample),
-)
-
-
-# =========================================================
-# ITEMS
-# =========================================================
+print( "Fresh validation groups:",len(sample),)
 
 ITEM_COLUMNS = [
     "item_id",
@@ -437,7 +329,6 @@ ITEM_COLUMNS = [
     "item_location_id",
     "item_microcat_id",
 ]
-
 
 items = (
     train[
@@ -451,7 +342,6 @@ items = (
     )
 )
 
-
 item_ids = (
     items[
         "item_id"
@@ -460,14 +350,12 @@ item_ids = (
     .to_numpy()
 )
 
-
 item_locations = (
     items[
         "item_location_id"
     ]
     .to_numpy()
 )
-
 
 item_microcats = np.asarray(
     [
@@ -479,62 +367,34 @@ item_microcats = np.asarray(
     dtype=object,
 )
 
+print( "Items:",len(items),)
 
-print(
-    "Items:",
-    len(items),
-)
-
-
-# =========================================================
-# EMBEDDINGS
-# =========================================================
-
-print(
-    "\nЗагружаем BGE embeddings..."
-)
-
+print("\nЗагружаем BGE embeddings...")
 
 item_embeddings = np.load(
     BGE_EMB_PATH
 )
-
 
 saved_ids = np.load(
     BGE_IDS_PATH,
     allow_pickle=True,
 )
 
-
 assert (
     len(item_embeddings)
     == len(items)
 )
-
 
 assert np.array_equal(
     saved_ids.astype(str),
     item_ids,
 )
 
+print("Embeddings:", item_embeddings.shape)
 
-print(
-    "Embeddings:",
-    item_embeddings.shape,
-)
-
-
-# =========================================================
-# LOCATION INDEX
-# =========================================================
-
-print(
-    "\nСтроим location index..."
-)
-
+print("\nСтроим location index...")
 
 location_to_indices = {}
-
 
 for (
     location,
@@ -551,20 +411,11 @@ for (
         )
     )
 
-
-# =========================================================
-# MICROCAT INDEX
-# =========================================================
-
-print(
-    "Строим microcat index..."
-)
-
+print("Строим microcat index...")
 
 microcat_to_indices = (
     defaultdict(list)
 )
-
 
 for idx, mc in enumerate(
     item_microcats
@@ -577,7 +428,6 @@ for idx, mc in enumerate(
         ].append(
             idx
         )
-
 
 for mc in list(
     microcat_to_indices
@@ -592,15 +442,7 @@ for mc in list(
         dtype=np.int64,
     )
 
-
-# =========================================================
-# GEO PRIOR
-# =========================================================
-
-print(
-    "\nСтроим answer2 geo prior..."
-)
-
+print("\nСтроим answer2 geo prior...")
 
 geo_counts = (
     supervision
@@ -617,7 +459,6 @@ geo_counts = (
     )
 )
 
-
 geo_counts[
     "total"
 ] = (
@@ -632,7 +473,6 @@ geo_counts[
     )
 )
 
-
 geo_counts[
     "prob"
 ] = (
@@ -644,7 +484,6 @@ geo_counts[
         "total"
     ]
 )
-
 
 geo_counts = (
     geo_counts
@@ -660,9 +499,7 @@ geo_counts = (
     )
 )
 
-
 geo_map = {}
-
 
 for (
     search_location,
@@ -702,24 +539,14 @@ for (
         ]
     )
 
-
-# =========================================================
-# BGE MODEL
-# =========================================================
-
-print(
-    "\nЗагружаем BGE-M3..."
-)
-
+print("\nЗагружаем BGE-M3...")
 
 model = SentenceTransformer(
     "BAAI/bge-m3",
     device=DEVICE,
 )
 
-
 model.max_seq_length = 128
-
 
 query_texts = (
     sample[
@@ -730,11 +557,7 @@ query_texts = (
     .tolist()
 )
 
-
-print(
-    "\nКодируем queries..."
-)
-
+print("\nКодируем queries...")
 
 query_embeddings = model.encode(
     query_texts,
@@ -746,18 +569,9 @@ query_embeddings = model.encode(
     np.float32
 )
 
-
-# =========================================================
-# GLOBAL BGE
-# =========================================================
-
-print(
-    "\nGlobal BGE top-500..."
-)
-
+print("\nGlobal BGE top-500...")
 
 global_bge_top = []
-
 
 for start in tqdm(
     range(
@@ -772,7 +586,6 @@ for start in tqdm(
         len(sample),
     )
 
-
     scores = (
         query_embeddings[
             start:end
@@ -780,13 +593,11 @@ for start in tqdm(
         @ item_embeddings.T
     )
 
-
     pos = np.argpartition(
         scores,
         -K_GLOBAL,
         axis=1,
     )[:, -K_GLOBAL:]
-
 
     for row in range(
         end - start
@@ -809,18 +620,9 @@ for start in tqdm(
             ]
         )
 
-
-# =========================================================
-# EXACT-LOCATION BGE
-# =========================================================
-
-print(
-    "Exact-location BGE..."
-)
-
+print("Exact-location BGE...")
 
 local_bge_top = []
-
 
 for i in tqdm(
     range(
@@ -836,13 +638,11 @@ for i in tqdm(
         ]
     )
 
-
     indices = (
         location_to_indices.get(
             search_location
         )
     )
-
 
     if (
         indices is None
@@ -858,7 +658,6 @@ for i in tqdm(
 
         continue
 
-
     scores = (
         item_embeddings[
             indices
@@ -868,7 +667,6 @@ for i in tqdm(
         ]
     )
 
-
     local_bge_top.append(
         top_k_indices(
             scores,
@@ -877,18 +675,9 @@ for i in tqdm(
         )
     )
 
-
-# =========================================================
-# NEW: ALTERNATIVE-GEO BGE
-# =========================================================
-
-print(
-    "\nAlternative-GEO BGE..."
-)
-
+print("\nAlternative-GEO BGE...")
 
 alt_geo_bge_top = []
-
 
 for i in tqdm(
     range(
@@ -904,7 +693,6 @@ for i in tqdm(
         ]
     )
 
-
     alt_locations = [
         loc
         for loc, _
@@ -914,7 +702,6 @@ for i in tqdm(
         )
     ]
 
-
     pools = [
         location_to_indices[
             loc
@@ -923,7 +710,6 @@ for i in tqdm(
         if loc
         in location_to_indices
     ]
-
 
     if not pools:
 
@@ -936,13 +722,11 @@ for i in tqdm(
 
         continue
 
-
     alt_indices = np.unique(
         np.concatenate(
             pools
         )
     )
-
 
     alt_scores = (
         item_embeddings[
@@ -953,7 +737,6 @@ for i in tqdm(
         ]
     )
 
-
     alt_geo_bge_top.append(
         top_k_indices(
             alt_scores,
@@ -962,15 +745,7 @@ for i in tqdm(
         )
     )
 
-
-# =========================================================
-# BM25
-# =========================================================
-
-print(
-    "\nЗагружаем BM25..."
-)
-
+print("\nЗагружаем BM25...")
 
 retriever = bm25s.BM25.load(
     str(
@@ -979,11 +754,9 @@ retriever = bm25s.BM25.load(
     load_corpus=False,
 )
 
-
 stemmer = Stemmer.Stemmer(
     "russian"
 )
-
 
 bm25_query_texts = (
     sample[
@@ -1001,18 +774,13 @@ bm25_query_texts = (
     .astype(str)
 ).tolist()
 
-
 tokens = bm25s.tokenize(
     bm25_query_texts,
     stopwords=None,
     stemmer=stemmer,
 )
 
-
-print(
-    "BM25 top-10000..."
-)
-
+print("BM25 top-10000...")
 
 bm25_wide, _ = (
     retriever.retrieve(
@@ -1021,7 +789,6 @@ bm25_wide, _ = (
     )
 )
 
-
 global_bm25_top = (
     bm25_wide[
         :,
@@ -1029,20 +796,11 @@ global_bm25_top = (
     ]
 )
 
-
-# =========================================================
-# EXACT LOCAL BM25 + ALT GEO BM25
-# =========================================================
-
-print(
-    "Формируем exact/alt GEO BM25..."
-)
-
+print("Формируем exact/alt GEO BM25...")
 
 local_bm25_top = []
 
 alt_geo_bm25_top = []
-
 
 for i in tqdm(
     range(
@@ -1058,7 +816,6 @@ for i in tqdm(
         ]
     )
 
-
     alt_location_set = set(
         loc
         for loc, _
@@ -1068,11 +825,9 @@ for i in tqdm(
         )
     )
 
-
     exact_candidates = []
 
     alt_candidates = []
-
 
     for idx in (
         bm25_wide[
@@ -1090,7 +845,6 @@ for i in tqdm(
             ]
         )
 
-
         if (
             item_location
             == search_location
@@ -1103,7 +857,6 @@ for i in tqdm(
             exact_candidates.append(
                 idx
             )
-
 
         if (
             item_location
@@ -1118,7 +871,6 @@ for i in tqdm(
                 idx
             )
 
-
         if (
             len(
                 exact_candidates
@@ -1132,14 +884,12 @@ for i in tqdm(
         ):
             break
 
-
     local_bm25_top.append(
         np.asarray(
             exact_candidates,
             dtype=np.int64,
         )
     )
-
 
     alt_geo_bm25_top.append(
         np.asarray(
@@ -1148,30 +898,19 @@ for i in tqdm(
         )
     )
 
-
-# =========================================================
-# MICROCAT
-# =========================================================
-
-print(
-    "\nMicrocat classifier..."
-)
-
+print("\nMicrocat classifier...")
 
 vectorizer = joblib.load(
     MICROCAT_VECTORIZER_PATH
 )
 
-
 classifier = joblib.load(
     MICROCAT_CLASSIFIER_PATH
 )
 
-
 X = vectorizer.transform(
     query_texts
 )
-
 
 decision = (
     classifier
@@ -1179,7 +918,6 @@ decision = (
         X
     )
 )
-
 
 classes = np.asarray(
     [
@@ -1189,12 +927,10 @@ classes = np.asarray(
     dtype=object,
 )
 
-
 k_mc = min(
     TOP_MICROCATS,
     len(classes),
 )
-
 
 positions = np.argpartition(
     decision,
@@ -1202,9 +938,7 @@ positions = np.argpartition(
     axis=1,
 )[:, -k_mc:]
 
-
 predicted_microcats = []
-
 
 for i in range(
     len(sample)
@@ -1221,7 +955,6 @@ for i in range(
         ]
     )[::-1]
 
-
     predicted_microcats.append(
         classes[
             pos[
@@ -1230,20 +963,11 @@ for i in range(
         ].tolist()
     )
 
-
-# =========================================================
-# MICROCAT BGE
-# =========================================================
-
-print(
-    "Microcat BGE..."
-)
-
+print("Microcat BGE...")
 
 microcat_bge_top = []
 
 microcat_sets = []
-
 
 for i in tqdm(
     range(
@@ -1257,13 +981,11 @@ for i in tqdm(
         ]
     )
 
-
     microcat_sets.append(
         set(
             selected
         )
     )
-
 
     pools = [
         microcat_to_indices[
@@ -1273,7 +995,6 @@ for i in tqdm(
         if mc
         in microcat_to_indices
     ]
-
 
     if not pools:
 
@@ -1286,13 +1007,11 @@ for i in tqdm(
 
         continue
 
-
     indices = np.unique(
         np.concatenate(
             pools
         )
     )
-
 
     scores = (
         item_embeddings[
@@ -1303,7 +1022,6 @@ for i in tqdm(
         ]
     )
 
-
     microcat_bge_top.append(
         top_k_indices(
             scores,
@@ -1312,22 +1030,13 @@ for i in tqdm(
         )
     )
 
-
-# =========================================================
-# BUILD ANSWER2 BASE SCORES
-# =========================================================
-
-print(
-    "\nСтроим answer2 baseline..."
-)
-
+print("\nСтроим answer2 baseline...")
 
 answer2_scores = []
 
 answer2_top = []
 
 answer2_recalls = []
-
 
 for i in tqdm(
     range(
@@ -1337,7 +1046,6 @@ for i in tqdm(
 
     scores = {}
 
-
     add_rrf(
         scores,
         global_bm25_top[
@@ -1345,7 +1053,6 @@ for i in tqdm(
         ],
         1.0,
     )
-
 
     add_rrf(
         scores,
@@ -1355,7 +1062,6 @@ for i in tqdm(
         BGE_GLOBAL_WEIGHT,
     )
 
-
     add_rrf(
         scores,
         local_bge_top[
@@ -1363,7 +1069,6 @@ for i in tqdm(
         ],
         LOCAL_BGE_WEIGHT,
     )
-
 
     add_rrf(
         scores,
@@ -1373,7 +1078,6 @@ for i in tqdm(
         LOCAL_BM25_WEIGHT,
     )
 
-
     add_rrf(
         scores,
         microcat_bge_top[
@@ -1381,7 +1085,6 @@ for i in tqdm(
         ],
         MICROCAT_SOURCE_WEIGHT,
     )
-
 
     search_location = (
         sample.iloc[
@@ -1391,13 +1094,11 @@ for i in tqdm(
         ]
     )
 
-
     selected_microcats = (
         microcat_sets[
             i
         ]
     )
-
 
     geo_prob = {
         loc: prob
@@ -1408,7 +1109,6 @@ for i in tqdm(
         )
     }
 
-
     for idx in scores:
 
         item_location = (
@@ -1416,7 +1116,6 @@ for i in tqdm(
                 idx
             ]
         )
-
 
         if (
             item_location
@@ -1428,7 +1127,6 @@ for i in tqdm(
             ] += (
                 LOCATION_BONUS
             )
-
 
         if (
             item_microcats[
@@ -1443,13 +1141,11 @@ for i in tqdm(
                 MICROCAT_BONUS
             )
 
-
         probability = (
             geo_prob.get(
                 item_location
             )
         )
-
 
         if (
             probability
@@ -1464,13 +1160,11 @@ for i in tqdm(
                 probability
             )
 
-
     ranked = sorted(
         scores,
         key=scores.get,
         reverse=True,
     )[:50]
-
 
     relevant = (
         sample.iloc[
@@ -1480,13 +1174,11 @@ for i in tqdm(
         ]
     )
 
-
     recall = recall_at_50(
         ranked,
         relevant,
         item_ids,
     )
-
 
     answer2_scores.append(
         scores
@@ -1500,57 +1192,29 @@ for i in tqdm(
         recall
     )
 
-
 answer2_recalls = np.asarray(
     answer2_recalls
 )
-
 
 answer2_mean = float(
     answer2_recalls.mean()
 )
 
+print( "\n" + "=" * 100)
 
-print(
-    "\n"
-    + "=" * 100
-)
+print("CURRENT ANSWER2 PIPELINE")
 
-print(
-    "CURRENT ANSWER2 PIPELINE"
-)
+print( "=" * 100)
 
-print(
-    "=" * 100
-)
+print(f"Recall@50: " f"{answer2_mean * 100:.3f}%")
 
+print( "\n" + "=" * 115)
 
-print(
-    f"Recall@50: "
-    f"{answer2_mean * 100:.3f}%"
-)
+print("ALT-GEO RETRIEVAL GRID")
 
-
-# =========================================================
-# ALT GEO RETRIEVAL GRID
-# =========================================================
-
-print(
-    "\n"
-    + "=" * 115
-)
-
-print(
-    "ALT-GEO RETRIEVAL GRID"
-)
-
-print(
-    "=" * 115
-)
-
+print( "=" * 115)
 
 results = []
-
 
 for bge_weight in (
     ALT_BGE_WEIGHTS
@@ -1566,7 +1230,6 @@ for bge_weight in (
         ):
             continue
 
-
         recalls = []
 
         improved = 0
@@ -1576,7 +1239,6 @@ for bge_weight in (
         total_changed = 0
 
         changed_queries = 0
-
 
         for i in range(
             len(sample)
@@ -1588,7 +1250,6 @@ for bge_weight in (
                 ]
             )
 
-
             add_rrf(
                 scores,
                 alt_geo_bge_top[
@@ -1596,7 +1257,6 @@ for bge_weight in (
                 ],
                 bge_weight,
             )
-
 
             add_rrf(
                 scores,
@@ -1606,13 +1266,11 @@ for bge_weight in (
                 bm25_weight,
             )
 
-
             ranked = sorted(
                 scores,
                 key=scores.get,
                 reverse=True,
             )[:50]
-
 
             relevant = (
                 sample.iloc[
@@ -1622,25 +1280,21 @@ for bge_weight in (
                 ]
             )
 
-
             recall = recall_at_50(
                 ranked,
                 relevant,
                 item_ids,
             )
 
-
             recalls.append(
                 recall
             )
-
 
             old_recall = (
                 answer2_recalls[
                     i
                 ]
             )
-
 
             if (
                 recall
@@ -1650,7 +1304,6 @@ for bge_weight in (
 
                 improved += 1
 
-
             elif (
                 recall
                 <
@@ -1658,7 +1311,6 @@ for bge_weight in (
             ):
 
                 worse += 1
-
 
             changed = (
                 len(
@@ -1675,16 +1327,13 @@ for bge_weight in (
                 // 2
             )
 
-
             total_changed += (
                 changed
             )
 
-
             if changed > 0:
 
                 changed_queries += 1
-
 
         mean_recall = float(
             np.mean(
@@ -1692,20 +1341,17 @@ for bge_weight in (
             )
         )
 
-
         delta = (
             mean_recall
             -
             answer2_mean
         ) * 100
 
-
         avg_changed = (
             total_changed
             /
             len(sample)
         )
-
 
         results.append(
             {
@@ -1735,22 +1381,7 @@ for bge_weight in (
             }
         )
 
-
-        print(
-            f"BGE={bge_weight:>4.2f} | "
-            f"BM25={bm25_weight:>4.2f} | "
-            f"Recall={mean_recall * 100:6.3f}% | "
-            f"delta={delta:+.3f} pp | "
-            f"+={improved:>3} | "
-            f"-={worse:>3} | "
-            f"changed_q={changed_queries:>4} | "
-            f"avg_changed={avg_changed:.2f}"
-        )
-
-
-# =========================================================
-# BEST
-# =========================================================
+        print(f"BGE={bge_weight:>4.2f} | " f"BM25={bm25_weight:>4.2f} | " f"Recall={mean_recall * 100:6.3f}% | " f"delta={delta:+.3f} pp | " f"+={improved:>3} | " f"-={worse:>3} | " f"changed_q={changed_queries:>4} | " f"avg_changed={avg_changed:.2f}")
 
 result_df = (
     pd.DataFrame(
@@ -1773,139 +1404,40 @@ result_df = (
     )
 )
 
+print( "\n" + "=" * 115)
 
-print(
-    "\n"
-    + "=" * 115
-)
+print("BEST ALT-GEO CONFIGS")
 
-print(
-    "BEST ALT-GEO CONFIGS"
-)
+print( "=" * 115)
 
-print(
-    "=" * 115
-)
-
-
-print(
-    result_df
-    .head(
-        20
-    )
-    .to_string(
-        index=False,
-        formatters={
-            "recall":
-                lambda x:
-                f"{x * 100:.3f}%",
-
-            "delta_pp":
-                lambda x:
-                f"{x:+.3f}",
-
-            "avg_changed":
-                lambda x:
-                f"{x:.3f}",
-        },
-    )
-)
-
+print(result_df.head(20).to_string(index=False,formatters={ "recall": lambda x: f"{x * 100:.3f}%", "delta_pp": lambda x: f"{x:+.3f}", "avg_changed": lambda x: f"{x:.3f}",},))
 
 best = result_df.iloc[
     0
 ]
 
+print( "\n" + "=" * 90)
 
-print(
-    "\n"
-    + "=" * 90
-)
+print("SUMMARY")
 
-print(
-    "SUMMARY"
-)
+print( "=" * 90)
 
-print(
-    "=" * 90
-)
+print( "Fresh sample:",f"{FRESH_START}:{FRESH_END}",)
 
+print( "Answer2 baseline:",f"{answer2_mean * 100:.3f}%")
 
-print(
-    "Fresh sample:",
-    f"{FRESH_START}:{FRESH_END}",
-)
+print( "Best ALT BGE weight:",float(best[ "bge_weight"]))
 
+print( "Best ALT BM25 weight:",float(best[ "bm25_weight"]))
 
-print(
-    "Answer2 baseline:",
-    f"{answer2_mean * 100:.3f}%"
-)
+print( "Best Recall:",f"{best['recall'] * 100:.3f}%")
 
+print( "Increment over answer2:",f"{best['delta_pp']:+.3f} pp")
 
-print(
-    "Best ALT BGE weight:",
-    float(
-        best[
-            "bge_weight"
-        ]
-    )
-)
+print( "Improved groups:",int(best[ "improved"]))
 
+print( "Worse groups:",int(best[ "worse"]))
 
-print(
-    "Best ALT BM25 weight:",
-    float(
-        best[
-            "bm25_weight"
-        ]
-    )
-)
+print( "Changed queries:",int(best[ "changed_queries"]))
 
-
-print(
-    "Best Recall:",
-    f"{best['recall'] * 100:.3f}%"
-)
-
-
-print(
-    "Increment over answer2:",
-    f"{best['delta_pp']:+.3f} pp"
-)
-
-
-print(
-    "Improved groups:",
-    int(
-        best[
-            "improved"
-        ]
-    )
-)
-
-
-print(
-    "Worse groups:",
-    int(
-        best[
-            "worse"
-        ]
-    )
-)
-
-
-print(
-    "Changed queries:",
-    int(
-        best[
-            "changed_queries"
-        ]
-    )
-)
-
-
-print(
-    "Average changed items/query:",
-    f"{best['avg_changed']:.3f}"
-)
+print( "Average changed items/query:",f"{best['avg_changed']:.3f}")

@@ -12,11 +12,6 @@ import torch
 from sentence_transformers import SentenceTransformer
 from tqdm.auto import tqdm
 
-
-# =========================================================
-# PATHS
-# =========================================================
-
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 
@@ -29,11 +24,6 @@ BM25_DIR = DATA / "train_bm25_index"
 
 MC_VEC_PATH = DATA / "microcat_vectorizer.joblib"
 MC_CLF_PATH = DATA / "microcat_classifier.joblib"
-
-
-# =========================================================
-# ANSWER4 CONFIG
-# =========================================================
 
 K_GLOBAL = 500
 
@@ -48,7 +38,6 @@ TOP_MICROCATS = 5
 
 RRF_K = 60
 
-
 BGE_GLOBAL_WEIGHT = 1.0
 
 LOCAL_BGE_WEIGHT = 0.25
@@ -56,37 +45,27 @@ LOCAL_BM25_WEIGHT = 1.25
 
 MICROCAT_SOURCE_WEIGHT = 0.25
 
-
 LOCATION_BONUS = 0.020
 
 MICROCAT_BONUS = 0.010
-
 
 GEO_TOP_N = 3
 
 GEO_WEIGHT = 0.060
 
-
 ALT_GEO_BGE_WEIGHT = 0.25
 
 ALT_GEO_BM25_WEIGHT = 0.50
 
-
 K_ALT_GEO_BGE = 500
 
 K_ALT_GEO_BM25 = 500
-
 
 K_JOINT_BGE = 500
 
 EXACT_MC_BGE_WEIGHT = 0.50
 
 ALT_MC_BGE_WEIGHT = 0.25
-
-
-# =========================================================
-# HISTORY PROTOTYPE
-# =========================================================
 
 PROTO_TOP_K = 500
 
@@ -100,11 +79,6 @@ PROTO_WEIGHTS = [
     1.25,
 ]
 
-
-# =========================================================
-# WARM SPLIT
-# =========================================================
-
 RANDOM_STATE = 2026
 
 TUNE_START = 8000
@@ -112,11 +86,6 @@ TUNE_END = 10000
 
 CONFIRM_START = 10000
 CONFIRM_END = 12000
-
-
-# =========================================================
-# HELPERS
-# =========================================================
 
 def normalize_query(value):
 
@@ -129,7 +98,6 @@ def normalize_query(value):
         .strip()
         .split()
     )
-
 
 def microcat_key(value):
 
@@ -151,7 +119,6 @@ def microcat_key(value):
 
     return str(value)
 
-
 def stable_hash(value):
 
     return hashlib.sha1(
@@ -159,7 +126,6 @@ def stable_hash(value):
             "utf-8"
         )
     ).hexdigest()
-
 
 def normalize_vector(vector):
 
@@ -175,7 +141,6 @@ def normalize_vector(vector):
         /
         norm
     )
-
 
 def add_rrf(
     scores,
@@ -208,7 +173,6 @@ def add_rrf(
             )
         )
 
-
 def top_k_indices(
     scores,
     indices,
@@ -227,7 +191,6 @@ def top_k_indices(
         len(indices),
     )
 
-
     if k == len(indices):
 
         order = np.argsort(
@@ -238,12 +201,10 @@ def top_k_indices(
             order
         ]
 
-
     pos = np.argpartition(
         scores,
         -k,
     )[-k:]
-
 
     order = np.argsort(
         scores[
@@ -251,13 +212,11 @@ def top_k_indices(
         ]
     )[::-1]
 
-
     return indices[
         pos[
             order
         ]
     ]
-
 
 def recall_at_50(
     predicted_indices,
@@ -283,7 +242,6 @@ def recall_at_50(
         )
     )
 
-
 def build_final_top50(
     ranked_indices,
     history_indices,
@@ -292,12 +250,6 @@ def build_final_top50(
     result = []
 
     seen = set()
-
-
-    # ---------------------------------------------
-    # Same idea as real submission:
-    # historical positive items are pinned first.
-    # ---------------------------------------------
 
     for idx in history_indices:
 
@@ -321,11 +273,6 @@ def build_final_top50(
                 dtype=np.int64,
             )
 
-
-    # ---------------------------------------------
-    # Fill remaining positions from ranking.
-    # ---------------------------------------------
-
     for idx in ranked_indices:
 
         idx = int(idx)
@@ -344,16 +291,10 @@ def build_final_top50(
         if len(result) >= 50:
             break
 
-
     return np.asarray(
         result[:50],
         dtype=np.int64,
     )
-
-
-# =========================================================
-# DEVICE
-# =========================================================
 
 if torch.backends.mps.is_available():
 
@@ -367,26 +308,13 @@ else:
 
     DEVICE = "cpu"
 
+print("Device:", DEVICE)
 
-print(
-    "Device:",
-    DEVICE,
-)
-
-
-# =========================================================
-# LOAD TRAIN
-# =========================================================
-
-print(
-    "\nЗагружаем train..."
-)
-
+print("\nЗагружаем train...")
 
 train = pd.read_parquet(
     TRAIN_PATH
 )
-
 
 train[
     "item_id"
@@ -397,7 +325,6 @@ train[
     .astype(str)
 )
 
-
 train[
     "_norm_query"
 ] = [
@@ -406,7 +333,6 @@ train[
         "search_query"
     ]
 ]
-
 
 train[
     "_mc"
@@ -417,16 +343,7 @@ train[
     ]
 ]
 
-
-print(
-    "Rows:",
-    len(train),
-)
-
-
-# =========================================================
-# ITEM CORPUS
-# =========================================================
+print( "Rows:",len(train),)
 
 ITEM_COLUMNS = [
     "item_id",
@@ -436,7 +353,6 @@ ITEM_COLUMNS = [
     "item_location_id",
     "item_microcat_id",
 ]
-
 
 items = (
     train[
@@ -450,7 +366,6 @@ items = (
     )
 )
 
-
 item_ids = (
     items[
         "item_id"
@@ -459,14 +374,12 @@ item_ids = (
     .to_numpy()
 )
 
-
 item_locations = (
     items[
         "item_location_id"
     ]
     .to_numpy()
 )
-
 
 item_microcats = np.asarray(
     [
@@ -478,7 +391,6 @@ item_microcats = np.asarray(
     dtype=object,
 )
 
-
 item_id_to_index = {
     item_id: idx
     for idx, item_id
@@ -487,21 +399,9 @@ item_id_to_index = {
     )
 }
 
+print( "Unique items:",len(items),)
 
-print(
-    "Unique items:",
-    len(items),
-)
-
-
-# =========================================================
-# ITEM EMBEDDINGS
-# =========================================================
-
-print(
-    "\nЗагружаем embeddings..."
-)
-
+print("\nЗагружаем embeddings...")
 
 item_embeddings = np.load(
     BGE_EMB_PATH
@@ -510,33 +410,19 @@ item_embeddings = np.load(
     copy=False,
 )
 
-
 saved_ids = np.load(
     BGE_IDS_PATH,
     allow_pickle=True,
 )
-
 
 assert np.array_equal(
     saved_ids.astype(str),
     item_ids,
 )
 
+print("Embeddings:", item_embeddings.shape)
 
-print(
-    "Embeddings:",
-    item_embeddings.shape,
-)
-
-
-# =========================================================
-# WARM QUERIES
-# =========================================================
-
-print(
-    "\nСтроим warm-query universe..."
-)
-
+print("\nСтроим warm-query universe...")
 
 query_item_counts = (
     train
@@ -552,7 +438,6 @@ query_item_counts = (
     )
 )
 
-
 unique_counts = (
     query_item_counts
     .groupby(
@@ -563,7 +448,6 @@ unique_counts = (
     .nunique()
 )
 
-
 warm_queries = (
     unique_counts[
         unique_counts >= 2
@@ -572,30 +456,9 @@ warm_queries = (
     .tolist()
 )
 
+print( "Warm queries:",len(warm_queries),)
 
-print(
-    "Warm queries:",
-    len(warm_queries),
-)
-
-
-# =========================================================
-# REPRESENTATIVE SEARCH CONTEXT
-# =========================================================
-#
-# Full answer4 needs:
-# location
-# params
-# category
-#
-# Use the most frequent observed search context for query.
-#
-# =========================================================
-
-print(
-    "Selecting representative contexts..."
-)
-
+print("Selecting representative contexts...")
 
 context_counts = (
     train[
@@ -620,7 +483,6 @@ context_counts = (
     )
 )
 
-
 context_counts = (
     context_counts
     .sort_values(
@@ -635,7 +497,6 @@ context_counts = (
     )
 )
 
-
 context_map = (
     context_counts
     .drop_duplicates(
@@ -645,11 +506,6 @@ context_map = (
         "_norm_query"
     )
 )
-
-
-# =========================================================
-# QUERY TEXT
-# =========================================================
 
 query_text_map = (
     train
@@ -666,15 +522,7 @@ query_text_map = (
     .to_dict()
 )
 
-
-# =========================================================
-# BUILD HISTORY / TARGET
-# =========================================================
-
-print(
-    "\nBuilding history / target split..."
-)
-
+print("\nBuilding history / target split...")
 
 query_groups = {
     query: group
@@ -690,9 +538,7 @@ query_groups = {
     )
 }
 
-
 records = []
-
 
 for query in tqdm(
     warm_queries
@@ -701,11 +547,9 @@ for query in tqdm(
     if query not in context_map.index:
         continue
 
-
     group = query_groups[
         query
     ]
-
 
     item_count_map = {
         str(row.item_id):
@@ -716,11 +560,9 @@ for query in tqdm(
         )
     }
 
-
     unique_ids = list(
         item_count_map.keys()
     )
-
 
     ordered_ids = sorted(
         unique_ids,
@@ -734,20 +576,9 @@ for query in tqdm(
             ),
     )
 
-
     n_items = len(
         ordered_ids
     )
-
-
-    # -------------------------------------------------
-    # SINGLETON-HISTORY SIMULATION
-    # -------------------------------------------------
-    #
-    # One known positive item becomes history.
-    # Up to five other positives become hidden targets.
-    #
-    # -------------------------------------------------
 
     history_ids = (
         ordered_ids[
@@ -755,13 +586,11 @@ for query in tqdm(
         ]
     )
 
-
     target_ids = (
         ordered_ids[
             1:6
         ]
     )
-
 
     if (
         not history_ids
@@ -769,12 +598,6 @@ for query in tqdm(
         not target_ids
     ):
         continue
-
-
-    # ---------------------------------------------
-    # History sorted by frequency, same spirit
-    # as actual submission.
-    # ---------------------------------------------
 
     history_ids = sorted(
         history_ids,
@@ -787,7 +610,6 @@ for query in tqdm(
             ),
     )
 
-
     history_indices = np.asarray(
         [
             item_id_to_index[
@@ -798,7 +620,6 @@ for query in tqdm(
         ],
         dtype=np.int64,
     )
-
 
     history_counts = np.asarray(
         [
@@ -811,13 +632,11 @@ for query in tqdm(
         dtype=np.float32,
     )
 
-
     ctx = (
         context_map.loc[
             query
         ]
     )
-
 
     records.append(
         {
@@ -871,11 +690,9 @@ for query in tqdm(
         }
     )
 
-
 warm_df = pd.DataFrame(
     records
 )
-
 
 warm_df = (
     warm_df
@@ -888,18 +705,12 @@ warm_df = (
     )
 )
 
-
-print(
-    "Usable warm queries:",
-    len(warm_df),
-)
-
+print( "Usable warm queries:",len(warm_df),)
 
 assert (
     len(warm_df)
     >= CONFIRM_END
 )
-
 
 sample = (
     warm_df
@@ -912,13 +723,11 @@ sample = (
     )
 )
 
-
 N_TUNE = (
     TUNE_END
     -
     TUNE_START
 )
-
 
 N_CONFIRM = (
     CONFIRM_END
@@ -926,46 +735,18 @@ N_CONFIRM = (
     CONFIRM_START
 )
 
-
 print()
-print(
-    "TUNE warm range:",
-    f"{TUNE_START}:{TUNE_END}",
-)
+print( "TUNE warm range:",f"{TUNE_START}:{TUNE_END}",)
 
+print("TUNE warm queries:", N_TUNE)
 
-print(
-    "TUNE warm queries:",
-    N_TUNE,
-)
+print( "CONFIRM warm range:",f"{CONFIRM_START}:{CONFIRM_END}",)
 
+print("CONFIRM warm queries:", N_CONFIRM)
 
-print(
-    "CONFIRM warm range:",
-    f"{CONFIRM_START}:{CONFIRM_END}",
-)
-
-
-print(
-    "CONFIRM warm queries:",
-    N_CONFIRM,
-)
-
-
-print(
-    "Median history items:",
-    sample[
-        "n_history"
-    ].median(),
-)
-
-
-# =========================================================
-# LOCATION INDEX
-# =========================================================
+print( "Median history items:",sample[ "n_history"].median(),)
 
 location_to_indices = {}
-
 
 for (
     location,
@@ -982,15 +763,9 @@ for (
         )
     )
 
-
-# =========================================================
-# MICROCAT INDEX
-# =========================================================
-
 microcat_to_indices = defaultdict(
     list
 )
-
 
 for idx, mc in enumerate(
     item_microcats
@@ -1003,7 +778,6 @@ for idx, mc in enumerate(
         ].append(
             idx
         )
-
 
 for mc in list(
     microcat_to_indices
@@ -1018,15 +792,7 @@ for mc in list(
         dtype=np.int64,
     )
 
-
-# =========================================================
-# GEO PRIOR
-# =========================================================
-
-print(
-    "\nBuilding geo prior..."
-)
-
+print("\nBuilding geo prior...")
 
 geo_counts = (
     train
@@ -1043,7 +809,6 @@ geo_counts = (
     )
 )
 
-
 geo_counts[
     "total"
 ] = (
@@ -1058,7 +823,6 @@ geo_counts[
     )
 )
 
-
 geo_counts[
     "prob"
 ] = (
@@ -1070,7 +834,6 @@ geo_counts[
         "total"
     ]
 )
-
 
 geo_counts = (
     geo_counts
@@ -1086,9 +849,7 @@ geo_counts = (
     )
 )
 
-
 geo_map = {}
-
 
 for (
     search_location,
@@ -1098,7 +859,6 @@ for (
 ):
 
     values = []
-
 
     for row in group.itertuples(
         index=False
@@ -1111,7 +871,6 @@ for (
         ):
             continue
 
-
         values.append(
             (
                 row.item_location_id,
@@ -1121,7 +880,6 @@ for (
             )
         )
 
-
     geo_map[
         search_location
     ] = (
@@ -1130,24 +888,14 @@ for (
         ]
     )
 
-
-# =========================================================
-# BGE QUERY
-# =========================================================
-
-print(
-    "\nLoading BGE..."
-)
-
+print("\nLoading BGE...")
 
 model = SentenceTransformer(
     "BAAI/bge-m3",
     device=DEVICE,
 )
 
-
 model.max_seq_length = 128
-
 
 query_texts = (
     sample[
@@ -1157,7 +905,6 @@ query_texts = (
     .astype(str)
     .tolist()
 )
-
 
 query_embeddings = model.encode(
     query_texts,
@@ -1169,18 +916,9 @@ query_embeddings = model.encode(
     np.float32
 )
 
-
-# =========================================================
-# GLOBAL BGE
-# =========================================================
-
-print(
-    "\nGlobal BGE..."
-)
-
+print("\nGlobal BGE...")
 
 global_bge_top = []
-
 
 for start in tqdm(
     range(
@@ -1195,7 +933,6 @@ for start in tqdm(
         len(sample),
     )
 
-
     scores = (
         query_embeddings[
             start:end
@@ -1203,13 +940,11 @@ for start in tqdm(
         @ item_embeddings.T
     )
 
-
     positions = np.argpartition(
         scores,
         -K_GLOBAL,
         axis=1,
     )[:, -K_GLOBAL:]
-
 
     for row in range(
         end - start
@@ -1219,7 +954,6 @@ for start in tqdm(
             row
         ]
 
-
         order = np.argsort(
             scores[
                 row,
@@ -1227,27 +961,17 @@ for start in tqdm(
             ]
         )[::-1]
 
-
         global_bge_top.append(
             idx[
                 order
             ]
         )
 
-
-# =========================================================
-# LOCAL / ALT BGE
-# =========================================================
-
-print(
-    "Local / ALT BGE..."
-)
-
+print("Local / ALT BGE...")
 
 local_bge_top = []
 
 alt_geo_bge_top = []
-
 
 for i in tqdm(
     range(
@@ -1261,13 +985,11 @@ for i in tqdm(
         ]
     )
 
-
     exact_indices = (
         location_to_indices.get(
             search_location
         )
     )
-
 
     if (
         exact_indices is None
@@ -1284,7 +1006,6 @@ for i in tqdm(
             )
         )
 
-
     else:
 
         scores = (
@@ -1296,7 +1017,6 @@ for i in tqdm(
             ]
         )
 
-
         local_bge_top.append(
             top_k_indices(
                 scores,
@@ -1304,7 +1024,6 @@ for i in tqdm(
                 K_LOCAL_BGE,
             )
         )
-
 
     alt_locations = [
         location
@@ -1314,7 +1033,6 @@ for i in tqdm(
             [],
         )
     ]
-
 
     pools = [
         location_to_indices[
@@ -1326,7 +1044,6 @@ for i in tqdm(
         in location_to_indices
     ]
 
-
     if not pools:
 
         alt_geo_bge_top.append(
@@ -1336,7 +1053,6 @@ for i in tqdm(
             )
         )
 
-
     else:
 
         alt_indices = np.unique(
@@ -1344,7 +1060,6 @@ for i in tqdm(
                 pools
             )
         )
-
 
         scores = (
             item_embeddings[
@@ -1355,7 +1070,6 @@ for i in tqdm(
             ]
         )
 
-
         alt_geo_bge_top.append(
             top_k_indices(
                 scores,
@@ -1364,15 +1078,7 @@ for i in tqdm(
             )
         )
 
-
-# =========================================================
-# BM25
-# =========================================================
-
-print(
-    "\nBM25..."
-)
-
+print("\nBM25...")
 
 retriever = bm25s.BM25.load(
     str(
@@ -1381,11 +1087,9 @@ retriever = bm25s.BM25.load(
     load_corpus=False,
 )
 
-
 stemmer = Stemmer.Stemmer(
     "russian"
 )
-
 
 bm25_query_text = (
     sample[
@@ -1403,13 +1107,11 @@ bm25_query_text = (
     .astype(str)
 ).tolist()
 
-
 tokens = bm25s.tokenize(
     bm25_query_text,
     stopwords=None,
     stemmer=stemmer,
 )
-
 
 bm25_wide, _ = (
     retriever.retrieve(
@@ -1418,7 +1120,6 @@ bm25_wide, _ = (
     )
 )
 
-
 global_bm25_top = (
     bm25_wide[
         :,
@@ -1426,20 +1127,11 @@ global_bm25_top = (
     ]
 )
 
-
-# =========================================================
-# LOCAL / ALT BM25
-# =========================================================
-
-print(
-    "Local / ALT BM25..."
-)
-
+print("Local / ALT BM25...")
 
 local_bm25_top = []
 
 alt_geo_bm25_top = []
-
 
 for i in tqdm(
     range(
@@ -1453,7 +1145,6 @@ for i in tqdm(
         ]
     )
 
-
     alt_set = {
         location
         for location, _
@@ -1463,11 +1154,9 @@ for i in tqdm(
         )
     }
 
-
     exact = []
 
     alt = []
-
 
     for idx in (
         bm25_wide[
@@ -1479,13 +1168,11 @@ for i in tqdm(
             idx
         )
 
-
         location = (
             item_locations[
                 idx
             ]
         )
-
 
         if (
             location
@@ -1503,7 +1190,6 @@ for i in tqdm(
                 idx
             )
 
-
         if (
             location
             in alt_set
@@ -1518,7 +1204,6 @@ for i in tqdm(
             alt.append(
                 idx
             )
-
 
         if (
             len(
@@ -1536,14 +1221,12 @@ for i in tqdm(
 
             break
 
-
     local_bm25_top.append(
         np.asarray(
             exact,
             dtype=np.int64,
         )
     )
-
 
     alt_geo_bm25_top.append(
         np.asarray(
@@ -1552,30 +1235,19 @@ for i in tqdm(
         )
     )
 
-
-# =========================================================
-# MICROCAT CLASSIFIER
-# =========================================================
-
-print(
-    "\nMicrocat classifier..."
-)
-
+print("\nMicrocat classifier...")
 
 mc_vectorizer = joblib.load(
     MC_VEC_PATH
 )
 
-
 mc_classifier = joblib.load(
     MC_CLF_PATH
 )
 
-
 X = mc_vectorizer.transform(
     query_texts
 )
-
 
 decision = (
     mc_classifier
@@ -1583,7 +1255,6 @@ decision = (
         X
     )
 )
-
 
 classes = np.asarray(
     [
@@ -1593,16 +1264,13 @@ classes = np.asarray(
     dtype=object,
 )
 
-
 positions = np.argpartition(
     decision,
     -TOP_MICROCATS,
     axis=1,
 )[:, -TOP_MICROCATS:]
 
-
 predicted_microcats = []
-
 
 for i in range(
     len(sample)
@@ -1612,14 +1280,12 @@ for i in range(
         i
     ]
 
-
     order = np.argsort(
         decision[
             i,
             pos,
         ]
     )[::-1]
-
 
     predicted_microcats.append(
         classes[
@@ -1629,13 +1295,7 @@ for i in range(
         ].tolist()
     )
 
-
-# =========================================================
-# HISTORY MICROCATS
-# =========================================================
-
 history_microcat_sets = []
-
 
 for i in range(
     len(sample)
@@ -1646,7 +1306,6 @@ for i in range(
             "history_indices"
         ]
     )
-
 
     mcs = [
         item_microcats[
@@ -1659,22 +1318,13 @@ for i in range(
         is not None
     ]
 
-
     history_microcat_sets.append(
         set(
             mcs
         )
     )
 
-
-# =========================================================
-# STANDARD MICROCAT + JOINT BGE
-# =========================================================
-
-print(
-    "\nMicrocat / joint BGE..."
-)
-
+print("\nMicrocat / joint BGE...")
 
 microcat_bge_top = []
 
@@ -1683,7 +1333,6 @@ exact_mc_bge_top = []
 alt_mc_bge_top = []
 
 combined_mc_sets = []
-
 
 for i in tqdm(
     range(
@@ -1700,14 +1349,7 @@ for i in tqdm(
         if mc is not None
     ]
 
-
-    # -----------------------------------------------------
-    # Production-style standard microcat:
-    # history microcats + classifier.
-    # -----------------------------------------------------
-
     combined = []
-
 
     for mc in (
         history_microcat_sets[
@@ -1721,7 +1363,6 @@ for i in tqdm(
                 mc
             )
 
-
     for mc in (
         classifier_mcs
     ):
@@ -1732,25 +1373,17 @@ for i in tqdm(
                 mc
             )
 
-
     combined = combined[
         :10
     ]
-
 
     combined_set = set(
         combined
     )
 
-
     combined_mc_sets.append(
         combined_set
     )
-
-
-    # -----------------------------------------------------
-    # STANDARD MICROCAT BGE
-    # -----------------------------------------------------
 
     pools = [
         microcat_to_indices[
@@ -1761,7 +1394,6 @@ for i in tqdm(
         if mc
         in microcat_to_indices
     ]
-
 
     if not pools:
 
@@ -1780,7 +1412,6 @@ for i in tqdm(
             )
         )
 
-
         scores = (
             item_embeddings[
                 indices
@@ -1790,7 +1421,6 @@ for i in tqdm(
             ]
         )
 
-
         microcat_bge_top.append(
             top_k_indices(
                 scores,
@@ -1798,13 +1428,6 @@ for i in tqdm(
                 K_MICROCAT,
             )
         )
-
-
-    # -----------------------------------------------------
-    # JOINT CHANNEL:
-    # classifier top-5 ONLY,
-    # same as answer4.
-    # -----------------------------------------------------
 
     joint_pools = [
         microcat_to_indices[
@@ -1815,7 +1438,6 @@ for i in tqdm(
         if mc
         in microcat_to_indices
     ]
-
 
     if not joint_pools:
 
@@ -1834,20 +1456,17 @@ for i in tqdm(
 
         continue
 
-
     joint_indices = np.unique(
         np.concatenate(
             joint_pools
         )
     )
 
-
     search_location = (
         sample.iloc[i][
             "search_location_id"
         ]
     )
-
 
     exact_mask = (
         item_locations[
@@ -1857,13 +1476,11 @@ for i in tqdm(
         search_location
     )
 
-
     exact_indices = (
         joint_indices[
             exact_mask
         ]
     )
-
 
     if len(
         exact_indices
@@ -1877,7 +1494,6 @@ for i in tqdm(
                 i
             ]
         )
-
 
         exact_mc_bge_top.append(
             top_k_indices(
@@ -1896,7 +1512,6 @@ for i in tqdm(
             )
         )
 
-
     alt_set = {
         location
         for location, _
@@ -1905,7 +1520,6 @@ for i in tqdm(
             [],
         )
     }
-
 
     alt_mask = np.isin(
         item_locations[
@@ -1916,13 +1530,11 @@ for i in tqdm(
         ),
     )
 
-
     alt_indices = (
         joint_indices[
             alt_mask
         ]
     )
-
 
     if len(
         alt_indices
@@ -1936,7 +1548,6 @@ for i in tqdm(
                 i
             ]
         )
-
 
         alt_mc_bge_top.append(
             top_k_indices(
@@ -1955,18 +1566,9 @@ for i in tqdm(
             )
         )
 
-
-# =========================================================
-# HISTORY PROTOTYPE
-# =========================================================
-
-print(
-    "\nHistory prototype retrieval..."
-)
-
+print("\nHistory prototype retrieval...")
 
 prototype_vectors = []
-
 
 for i in tqdm(
     range(
@@ -1980,13 +1582,11 @@ for i in tqdm(
         ]
     )
 
-
     counts = (
         sample.iloc[i][
             "history_counts"
         ]
     )
-
 
     embeddings = (
         item_embeddings[
@@ -1994,8 +1594,6 @@ for i in tqdm(
         ]
     )
 
-
-    # Count-weighted was best in previous test.
     vector = np.average(
         embeddings,
         axis=0,
@@ -2004,18 +1602,15 @@ for i in tqdm(
         np.float32
     )
 
-
     vector = normalize_vector(
         vector
     ).astype(
         np.float32
     )
 
-
     prototype_vectors.append(
         vector
     )
-
 
 prototype_vectors = np.vstack(
     prototype_vectors
@@ -2023,9 +1618,7 @@ prototype_vectors = np.vstack(
     np.float32
 )
 
-
 prototype_top = []
-
 
 for start in tqdm(
     range(
@@ -2041,7 +1634,6 @@ for start in tqdm(
         len(sample),
     )
 
-
     scores = (
         prototype_vectors[
             start:end
@@ -2049,19 +1641,16 @@ for start in tqdm(
         @ item_embeddings.T
     )
 
-
     k = min(
         PROTO_TOP_K,
         len(items),
     )
-
 
     positions = np.argpartition(
         scores,
         -k,
         axis=1,
     )[:, -k:]
-
 
     for row in range(
         end - start
@@ -2071,14 +1660,12 @@ for start in tqdm(
             row
         ]
 
-
         order = np.argsort(
             scores[
                 row,
                 idx,
             ]
         )[::-1]
-
 
         prototype_top.append(
             idx[
@@ -2088,18 +1675,9 @@ for start in tqdm(
             )
         )
 
-
-# =========================================================
-# RAW ANSWER4 SOURCES
-# =========================================================
-
-print(
-    "\nBuilding answer4 raw scores..."
-)
-
+print("\nBuilding answer4 raw scores...")
 
 raw_answer4_scores = []
-
 
 for i in tqdm(
     range(
@@ -2109,7 +1687,6 @@ for i in tqdm(
 
     scores = {}
 
-
     add_rrf(
         scores,
         global_bm25_top[
@@ -2117,7 +1694,6 @@ for i in tqdm(
         ],
         1.0,
     )
-
 
     add_rrf(
         scores,
@@ -2127,7 +1703,6 @@ for i in tqdm(
         BGE_GLOBAL_WEIGHT,
     )
 
-
     add_rrf(
         scores,
         local_bge_top[
@@ -2135,7 +1710,6 @@ for i in tqdm(
         ],
         LOCAL_BGE_WEIGHT,
     )
-
 
     add_rrf(
         scores,
@@ -2145,7 +1719,6 @@ for i in tqdm(
         LOCAL_BM25_WEIGHT,
     )
 
-
     add_rrf(
         scores,
         alt_geo_bge_top[
@@ -2153,7 +1726,6 @@ for i in tqdm(
         ],
         ALT_GEO_BGE_WEIGHT,
     )
-
 
     add_rrf(
         scores,
@@ -2163,7 +1735,6 @@ for i in tqdm(
         ALT_GEO_BM25_WEIGHT,
     )
 
-
     add_rrf(
         scores,
         microcat_bge_top[
@@ -2171,7 +1742,6 @@ for i in tqdm(
         ],
         MICROCAT_SOURCE_WEIGHT,
     )
-
 
     add_rrf(
         scores,
@@ -2181,7 +1751,6 @@ for i in tqdm(
         EXACT_MC_BGE_WEIGHT,
     )
 
-
     add_rrf(
         scores,
         alt_mc_bge_top[
@@ -2190,15 +1759,9 @@ for i in tqdm(
         ALT_MC_BGE_WEIGHT,
     )
 
-
     raw_answer4_scores.append(
         scores
     )
-
-
-# =========================================================
-# RANK ONE QUERY
-# =========================================================
 
 def rank_query(
     i,
@@ -2210,11 +1773,6 @@ def rank_query(
             i
         ]
     )
-
-
-    # -----------------------------------------------------
-    # NEW HISTORY PROTOTYPE CHANNEL
-    # -----------------------------------------------------
 
     if (
         prototype_weight
@@ -2230,20 +1788,17 @@ def rank_query(
             prototype_weight,
         )
 
-
     search_location = (
         sample.iloc[i][
             "search_location_id"
         ]
     )
 
-
     selected_mc_set = (
         combined_mc_sets[
             i
         ]
     )
-
 
     geo_prob = {
         location:
@@ -2258,11 +1813,6 @@ def rank_query(
         )
     }
 
-
-    # -----------------------------------------------------
-    # APPLY BONUSES AFTER ALL CHANNELS
-    # -----------------------------------------------------
-
     for idx in scores:
 
         location = (
@@ -2270,7 +1820,6 @@ def rank_query(
                 idx
             ]
         )
-
 
         if (
             location
@@ -2283,7 +1832,6 @@ def rank_query(
             ] += (
                 LOCATION_BONUS
             )
-
 
         if (
             item_microcats[
@@ -2299,13 +1847,11 @@ def rank_query(
                 MICROCAT_BONUS
             )
 
-
         probability = (
             geo_prob.get(
                 location
             )
         )
-
 
         if (
             probability
@@ -2320,17 +1866,11 @@ def rank_query(
                 probability
             )
 
-
     ranked = sorted(
         scores,
         key=scores.get,
         reverse=True,
     )
-
-
-    # -----------------------------------------------------
-    # Production-style history pinning.
-    # -----------------------------------------------------
 
     final_top = build_final_top50(
         ranked,
@@ -2339,13 +1879,7 @@ def rank_query(
         ],
     )
 
-
     return final_top
-
-
-# =========================================================
-# EVALUATE
-# =========================================================
 
 def evaluate(
     start,
@@ -2358,7 +1892,6 @@ def evaluate(
 
     tops = []
 
-
     improved = 0
 
     worse = 0
@@ -2366,7 +1899,6 @@ def evaluate(
     changed_queries = 0
 
     changed_items = 0
-
 
     for i in range(
         start,
@@ -2378,7 +1910,6 @@ def evaluate(
             prototype_weight,
         )
 
-
         recall = recall_at_50(
             top,
             sample.iloc[i][
@@ -2387,16 +1918,13 @@ def evaluate(
             item_ids,
         )
 
-
         recalls.append(
             recall
         )
 
-
         tops.append(
             top
         )
-
 
         if (
             baseline
@@ -2409,13 +1937,11 @@ def evaluate(
                 start
             )
 
-
             old_recall = (
                 baseline[
                     "recalls"
                 ][j]
             )
-
 
             if (
                 recall
@@ -2425,7 +1951,6 @@ def evaluate(
 
                 improved += 1
 
-
             elif (
                 recall
                 <
@@ -2433,7 +1958,6 @@ def evaluate(
             ):
 
                 worse += 1
-
 
             changed = (
                 len(
@@ -2451,11 +1975,9 @@ def evaluate(
                 2
             )
 
-
             changed_items += (
                 changed
             )
-
 
             if (
                 changed
@@ -2465,12 +1987,10 @@ def evaluate(
 
                 changed_queries += 1
 
-
     recalls = np.asarray(
         recalls,
         dtype=np.float32,
     )
-
 
     return {
         "mean":
@@ -2497,16 +2017,10 @@ def evaluate(
             changed_items,
     }
 
-
-# =========================================================
-# ANSWER4 WARM BASELINE
-# =========================================================
-
 print()
 print("=" * 110)
 print("FULL ANSWER4 — WARM BASELINE")
 print("=" * 110)
-
 
 tune_base = evaluate(
     0,
@@ -2514,38 +2028,22 @@ tune_base = evaluate(
     0.0,
 )
 
-
 confirm_base = evaluate(
     N_TUNE,
     N_TUNE + N_CONFIRM,
     0.0,
 )
 
+print( "TUNE answer4:",f"{tune_base['mean'] * 100:.3f}%")
 
-print(
-    "TUNE answer4:",
-    f"{tune_base['mean'] * 100:.3f}%"
-)
-
-
-print(
-    "CONFIRM answer4:",
-    f"{confirm_base['mean'] * 100:.3f}%"
-)
-
-
-# =========================================================
-# PROTOTYPE GRID
-# =========================================================
+print( "CONFIRM answer4:",f"{confirm_base['mean'] * 100:.3f}%")
 
 print()
 print("=" * 110)
 print("SINGLETON HISTORY PROTOTYPE — TUNE")
 print("=" * 110)
 
-
 rows = []
-
 
 for weight in (
     PROTO_WEIGHTS
@@ -2558,7 +2056,6 @@ for weight in (
         baseline=tune_base,
     )
 
-
     delta = (
         result[
             "mean"
@@ -2569,7 +2066,6 @@ for weight in (
         ]
     ) * 100
 
-
     avg_changed = (
         result[
             "changed_items"
@@ -2577,7 +2073,6 @@ for weight in (
         /
         N_TUNE
     )
-
 
     rows.append(
         {
@@ -2612,21 +2107,7 @@ for weight in (
         }
     )
 
-
-    print(
-        f"weight={weight:>4.2f} | "
-        f"Recall={result['mean'] * 100:6.3f}% | "
-        f"delta={delta:+.3f} pp | "
-        f"+={result['improved']:>4} | "
-        f"-={result['worse']:>4} | "
-        f"changed_q={result['changed_queries']:>4} | "
-        f"avg_changed={avg_changed:.2f}"
-    )
-
-
-# =========================================================
-# BEST TUNE
-# =========================================================
+    print(f"weight={weight:>4.2f} | " f"Recall={result['mean'] * 100:6.3f}% | " f"delta={delta:+.3f} pp | " f"+={result['improved']:>4} | " f"-={result['worse']:>4} | " f"changed_q={result['changed_queries']:>4} | " f"avg_changed={avg_changed:.2f}")
 
 result_df = (
     pd.DataFrame(
@@ -2651,33 +2132,12 @@ result_df = (
     )
 )
 
-
 print()
 print("=" * 110)
 print("BEST TUNE CONFIGS")
 print("=" * 110)
 
-
-print(
-    result_df
-    .to_string(
-        index=False,
-        formatters={
-            "recall":
-                lambda x:
-                f"{x * 100:.3f}%",
-
-            "delta_pp":
-                lambda x:
-                f"{x:+.3f}",
-
-            "avg_changed":
-                lambda x:
-                f"{x:.3f}",
-        },
-    )
-)
-
+print(result_df.to_string(index=False,formatters={ "recall": lambda x: f"{x * 100:.3f}%", "delta_pp": lambda x: f"{x:+.3f}", "avg_changed": lambda x: f"{x:.3f}",},))
 
 best = (
     result_df.iloc[
@@ -2685,17 +2145,11 @@ best = (
     ]
 )
 
-
 BEST_WEIGHT = float(
     best[
         "weight"
     ]
 )
-
-
-# =========================================================
-# INDEPENDENT CONFIRM
-# =========================================================
 
 confirm = evaluate(
     N_TUNE,
@@ -2703,7 +2157,6 @@ confirm = evaluate(
     BEST_WEIGHT,
     baseline=confirm_base,
 )
-
 
 confirm_delta = (
     confirm[
@@ -2715,17 +2168,11 @@ confirm_delta = (
     ]
 ) * 100
 
-
-# =========================================================
-# PROTOTYPE DIAGNOSTIC
-# =========================================================
-
 proto_hit_50 = 0
 
 proto_hit_100 = 0
 
 proto_hit_500 = 0
-
 
 for i in range(
     N_TUNE,
@@ -2738,13 +2185,11 @@ for i in range(
         ]
     )
 
-
     ranking = (
         prototype_top[
             i
         ]
     )
-
 
     if (
         set(
@@ -2760,7 +2205,6 @@ for i in range(
 
         proto_hit_50 += 1
 
-
     if (
         set(
             item_ids[
@@ -2774,7 +2218,6 @@ for i in range(
     ):
 
         proto_hit_100 += 1
-
 
     if (
         set(
@@ -2790,128 +2233,48 @@ for i in range(
 
         proto_hit_500 += 1
 
-
-# =========================================================
-# FINAL REPORT
-# =========================================================
-
 print()
 print("=" * 110)
 print("INDEPENDENT SINGLETON CONFIRMATION")
 print("=" * 110)
 
-
-print(
-    "Selected prototype weight:",
-    BEST_WEIGHT,
-)
-
+print("Selected prototype weight:", BEST_WEIGHT)
 
 print()
-print(
-    "ANSWER4 warm baseline:",
-    f"{confirm_base['mean'] * 100:.3f}%"
-)
+print( "ANSWER4 warm baseline:",f"{confirm_base['mean'] * 100:.3f}%")
 
+print( "ANSWER4 + prototype:",f"{confirm['mean'] * 100:.3f}%")
 
-print(
-    "ANSWER4 + prototype:",
-    f"{confirm['mean'] * 100:.3f}%"
-)
+print( "CONFIRM delta:",f"{confirm_delta:+.3f} pp")
 
+print( "Improved warm queries:",confirm[ "improved"])
 
-print(
-    "CONFIRM delta:",
-    f"{confirm_delta:+.3f} pp"
-)
+print( "Worse warm queries:",confirm[ "worse"])
 
+print( "Changed warm queries:",confirm[ "changed_queries"])
 
-print(
-    "Improved warm queries:",
-    confirm[
-        "improved"
-    ]
-)
-
-
-print(
-    "Worse warm queries:",
-    confirm[
-        "worse"
-    ]
-)
-
-
-print(
-    "Changed warm queries:",
-    confirm[
-        "changed_queries"
-    ]
-)
-
-
-print(
-    "Avg changed items/query:",
-    f"{confirm['changed_items'] / N_CONFIRM:.3f}"
-)
-
+print( "Avg changed items/query:",f"{confirm['changed_items'] / N_CONFIRM:.3f}")
 
 print()
-print(
-    "Prototype hit@50:",
-    f"{proto_hit_50 / N_CONFIRM * 100:.2f}%"
-)
+print( "Prototype hit@50:",f"{proto_hit_50 / N_CONFIRM * 100:.2f}%")
 
+print( "Prototype hit@100:",f"{proto_hit_100 / N_CONFIRM * 100:.2f}%")
 
-print(
-    "Prototype hit@100:",
-    f"{proto_hit_100 / N_CONFIRM * 100:.2f}%"
-)
-
-
-print(
-    "Prototype hit@500:",
-    f"{proto_hit_500 / N_CONFIRM * 100:.2f}%"
-)
-
+print( "Prototype hit@500:",f"{proto_hit_500 / N_CONFIRM * 100:.2f}%")
 
 print()
 print("=" * 110)
 print("FINAL SUMMARY")
 print("=" * 110)
 
+print( "Answer4 TUNE:",f"{tune_base['mean'] * 100:.3f}%")
 
-print(
-    "Answer4 TUNE:",
-    f"{tune_base['mean'] * 100:.3f}%"
-)
+print( "Best TUNE:",f"{best['recall'] * 100:.3f}%")
 
+print( "TUNE delta:",f"{best['delta_pp']:+.3f} pp")
 
-print(
-    "Best TUNE:",
-    f"{best['recall'] * 100:.3f}%"
-)
+print( "Answer4 CONFIRM:",f"{confirm_base['mean'] * 100:.3f}%")
 
+print( "New CONFIRM:",f"{confirm['mean'] * 100:.3f}%")
 
-print(
-    "TUNE delta:",
-    f"{best['delta_pp']:+.3f} pp"
-)
-
-
-print(
-    "Answer4 CONFIRM:",
-    f"{confirm_base['mean'] * 100:.3f}%"
-)
-
-
-print(
-    "New CONFIRM:",
-    f"{confirm['mean'] * 100:.3f}%"
-)
-
-
-print(
-    "CONFIRM delta:",
-    f"{confirm_delta:+.3f} pp"
-)
+print( "CONFIRM delta:",f"{confirm_delta:+.3f} pp")

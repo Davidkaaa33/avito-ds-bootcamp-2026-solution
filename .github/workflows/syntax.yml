@@ -1,0 +1,31 @@
+name: Syntax check
+
+on:
+  push:
+    branches:
+      - cleanup/reproducible-solution
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  py-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile Python sources
+        run: |
+          python -m py_compile \
+            solution.py \
+            build_train_assets.py \
+            build_benchmark_assets.py \
+            microcat_classifier.py \
+            check_submission.py \
+            experiments/*.py
+      - name: Check whitespace errors
+        run: git diff --check origin/main...HEAD

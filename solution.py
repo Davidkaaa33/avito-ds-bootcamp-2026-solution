@@ -13,10 +13,14 @@ import torch
 from sentence_transformers import SentenceTransformer
 from tqdm.auto import tqdm
 
+def select_device():
+    if torch.cuda.is_available():
+        return "cuda"
+    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
 
-# =========================================================
-# PATHS
-# =========================================================
+DEVICE = select_device()
 
 ROOT = Path(__file__).resolve().parent
 
@@ -32,28 +36,16 @@ ITEMS_PATH = DATA_DIR / "benchmark_items.parquet"
 BGE_EMB_PATH = DATA_DIR / "benchmark_bge_embeddings.npy"
 BGE_IDS_PATH = DATA_DIR / "benchmark_bge_item_ids.npy"
 
-# Train item embeddings are used only to construct
-# exact-query history prototypes.
 TRAIN_BGE_EMB_PATH = DATA_DIR / "train_bge_embeddings.npy"
 TRAIN_BGE_IDS_PATH = DATA_DIR / "train_bge_item_ids.npy"
 
 BM25_DIR = DATA_DIR / "benchmark_bm25_index"
 
-MICROCAT_VECTORIZER_PATH = (
-    DATA_DIR / "microcat_vectorizer.joblib"
-)
+MICROCAT_VECTORIZER_PATH = DATA_DIR / "microcat_vectorizer.joblib"
 
-MICROCAT_CLASSIFIER_PATH = (
-    DATA_DIR / "microcat_classifier.joblib"
-)
+MICROCAT_CLASSIFIER_PATH = DATA_DIR / "microcat_classifier.joblib"
 
-BASELINE_PATH = ROOT / "answer5.csv"
 OUTPUT_PATH = ROOT / "answer.csv"
-
-
-# =========================================================
-# RETRIEVAL CONFIG — SAME AS V1
-# =========================================================
 
 K_GLOBAL = 500
 
@@ -68,7 +60,6 @@ TOP_MICROCATS = 5
 
 RRF_K = 60
 
-
 BGE_GLOBAL_WEIGHT = 1.0
 
 LOCAL_BGE_WEIGHT = 0.25
@@ -77,33 +68,11 @@ LOCAL_BM25_WEIGHT = 1.25
 
 MICROCAT_SOURCE_WEIGHT = 0.25
 
-
 LOCATION_BONUS = 0.020
 MICROCAT_BONUS = 0.010
 
-
-# =========================================================
-# NEW GEO PRIOR
-# =========================================================
-#
-# Независимая validation:
-#
-# baseline = 77.301%
-# geo      = 81.777%
-# delta    = +4.476 pp
-#
-# best:
-# top_n = 3
-# weight = 0.06
-#
-# =========================================================
-
 GEO_TOP_N = 3
 GEO_WEIGHT = 0.060
-
-# =========================================================
-# ALT-GEO RETRIEVAL
-# =========================================================
 
 K_ALT_GEO_BGE = 500
 K_ALT_GEO_BM25 = 500
@@ -111,56 +80,19 @@ K_ALT_GEO_BM25 = 500
 ALT_GEO_BGE_WEIGHT = 0.25
 ALT_GEO_BM25_WEIGHT = 0.50
 
-# =========================================================
-# JOINT LOCATION × MICROCAT BGE
-# =========================================================
-
 K_JOINT_BGE = 500
 
 EXACT_MC_BGE_WEIGHT = 0.50
 ALT_MC_BGE_WEIGHT = 0.25
 
-
-# =========================================================
-# EXACT-QUERY HISTORY PROTOTYPE
-# =========================================================
-#
-# Independent warm validation on top of full answer4:
-#
-# baseline = 38.283%
-# prototype = 40.408%
-# delta = +2.124 pp
-#
-# improved = 80
-# worse    = 13
-#
-# Selected on TUNE:
-# weight = 0.75
-#
-# Applied ONLY to exact-history benchmark queries.
-#
-# =========================================================
-
 HISTORY_PROTO_TOP_K = 500
 
-# Current proven weight for queries with 2+ historical items.
 HISTORY_PROTO_WEIGHT_DEFAULT = 0.75
 
-# Fresh singleton-history validation selected 1.25.
 HISTORY_PROTO_WEIGHT_SINGLETON = 1.25
-
-
-# =========================================================
-# OTHER
-# =========================================================
 
 BGE_MAX_LENGTH = 128
 QUERY_BLOCK_SIZE = 20
-
-
-# =========================================================
-# HELPERS
-# =========================================================
 
 def norm_query(value):
 
@@ -173,7 +105,6 @@ def norm_query(value):
         .strip()
         .split()
     )
-
 
 def microcat_key(value):
 
@@ -195,13 +126,11 @@ def microcat_key(value):
 
     return str(value)
 
-
 def add_rrf(
     fusion_scores,
     indices,
     weight,
 ):
-
 
     for rank, idx in enumerate(
         indices,
@@ -223,7 +152,6 @@ def add_rrf(
                 + rank
             )
         )
-
 
 def sorted_top_k(
     scores,
@@ -270,11 +198,6 @@ def sorted_top_k(
         ]
     ]
 
-
-# =========================================================
-# DEVICE
-# =========================================================
-
 if torch.backends.mps.is_available():
     DEVICE = "mps"
 
@@ -284,16 +207,7 @@ elif torch.cuda.is_available():
 else:
     DEVICE = "cpu"
 
-
-print(
-    "Device:",
-    DEVICE,
-)
-
-
-# =========================================================
-# CHECK SAVED ASSETS
-# =========================================================
+print("Device:", DEVICE)
 
 required_paths = [
     TRAIN_PATH,
@@ -308,7 +222,6 @@ required_paths = [
     MICROCAT_CLASSIFIER_PATH,
 ]
 
-
 for path in required_paths:
 
     if not path.exists():
@@ -318,14 +231,7 @@ for path in required_paths:
             f"{path}"
         )
 
-
-# =========================================================
-# LOAD BENCHMARK DATA
-# =========================================================
-
-print(
-    "\nЗагружаем benchmark queries..."
-)
+print("\nЗагружаем benchmark queries...")
 
 queries = pd.read_parquet(
     QUERIES_PATH
@@ -333,15 +239,9 @@ queries = pd.read_parquet(
     drop=True
 )
 
-print(
-    "Benchmark queries:",
-    queries.shape,
-)
+print("Benchmark queries:", queries.shape)
 
-
-print(
-    "\nЗагружаем benchmark items..."
-)
+print("\nЗагружаем benchmark items...")
 
 items = (
     pd.read_parquet(
@@ -355,11 +255,7 @@ items = (
     )
 )
 
-print(
-    "Benchmark items:",
-    items.shape,
-)
-
+print("Benchmark items:", items.shape)
 
 item_ids = (
     items[
@@ -369,14 +265,12 @@ item_ids = (
     .to_numpy()
 )
 
-
 item_locations = (
     items[
         "item_location_id"
     ]
     .to_numpy()
 )
-
 
 item_microcats = np.asarray(
     [
@@ -388,37 +282,25 @@ item_microcats = np.asarray(
     dtype=object,
 )
 
-
 benchmark_item_set = set(
     item_ids.tolist()
 )
 
-
-# =========================================================
-# LOAD BENCHMARK EMBEDDINGS
-# =========================================================
-
-print(
-    "\nЗагружаем benchmark BGE embeddings..."
-)
-
+print("\nЗагружаем benchmark BGE embeddings...")
 
 item_embeddings = np.load(
     BGE_EMB_PATH
 )
-
 
 saved_item_ids = np.load(
     BGE_IDS_PATH,
     allow_pickle=True,
 )
 
-
 assert (
     len(item_embeddings)
     == len(items)
 )
-
 
 assert np.array_equal(
     saved_item_ids.astype(str),
@@ -428,36 +310,18 @@ assert np.array_equal(
     "не совпадает с embeddings!"
 )
 
+print("Embeddings:", item_embeddings.shape)
 
-print(
-    "Embeddings:",
-    item_embeddings.shape,
-)
-
-
-# =========================================================
-# LOAD BGE
-# =========================================================
-
-print(
-    "\nЗагружаем BGE-M3..."
-)
-
+print("\nЗагружаем BGE-M3...")
 
 model = SentenceTransformer(
     "BAAI/bge-m3",
     device=DEVICE,
 )
 
-
 model.max_seq_length = (
     BGE_MAX_LENGTH
 )
-
-
-# =========================================================
-# QUERY EMBEDDINGS
-# =========================================================
 
 query_texts = (
     queries[
@@ -468,11 +332,7 @@ query_texts = (
     .tolist()
 )
 
-
-print(
-    "\nКодируем benchmark queries..."
-)
-
+print("\nКодируем benchmark queries...")
 
 query_embeddings = model.encode(
     query_texts,
@@ -484,18 +344,9 @@ query_embeddings = model.encode(
     np.float32
 )
 
-
-# =========================================================
-# GLOBAL BGE TOP-500
-# =========================================================
-
-print(
-    "\nGlobal BGE top-500..."
-)
-
+print("\nGlobal BGE top-500...")
 
 global_bge_top = []
-
 
 for start in tqdm(
     range(
@@ -550,18 +401,9 @@ for start in tqdm(
             ]
         )
 
-
-# =========================================================
-# LOCATION INDEX
-# =========================================================
-
-print(
-    "\nСтроим location index..."
-)
-
+print("\nСтроим location index...")
 
 location_to_indices = {}
-
 
 for (
     location,
@@ -578,18 +420,9 @@ for (
         )
     )
 
-
-# =========================================================
-# LOCAL BGE TOP-500
-# =========================================================
-
-print(
-    "Local BGE top-500..."
-)
-
+print("Local BGE top-500...")
 
 local_bge_top = []
-
 
 for i in tqdm(
     range(
@@ -638,15 +471,7 @@ for i in tqdm(
         )
     )
 
-
-# =========================================================
-# BM25
-# =========================================================
-
-print(
-    "\nЗагружаем benchmark BM25..."
-)
-
+print("\nЗагружаем benchmark BM25...")
 
 retriever = bm25s.BM25.load(
     str(
@@ -655,11 +480,9 @@ retriever = bm25s.BM25.load(
     load_corpus=False,
 )
 
-
 stemmer = Stemmer.Stemmer(
     "russian"
 )
-
 
 bm25_query_texts = (
     queries[
@@ -677,18 +500,13 @@ bm25_query_texts = (
     .astype(str)
 ).tolist()
 
-
 query_tokens = bm25s.tokenize(
     bm25_query_texts,
     stopwords=None,
     stemmer=stemmer,
 )
 
-
-print(
-    "BM25 top-10000..."
-)
-
+print("BM25 top-10000...")
 
 bm25_wide, _ = (
     retriever.retrieve(
@@ -700,7 +518,6 @@ bm25_wide, _ = (
     )
 )
 
-
 global_bm25_top = (
     bm25_wide[
         :,
@@ -708,18 +525,9 @@ global_bm25_top = (
     ]
 )
 
-
-# =========================================================
-# LOCAL BM25
-# =========================================================
-
-print(
-    "Local BM25..."
-)
-
+print("Local BM25...")
 
 local_bm25_top = []
-
 
 for i in tqdm(
     range(
@@ -765,25 +573,15 @@ for i in tqdm(
         )
     )
 
-
-# =========================================================
-# MICROCAT CLASSIFIER
-# =========================================================
-
-print(
-    "\nЗагружаем microcat classifier..."
-)
-
+print("\nЗагружаем microcat classifier...")
 
 vectorizer = joblib.load(
     MICROCAT_VECTORIZER_PATH
 )
 
-
 classifier = joblib.load(
     MICROCAT_CLASSIFIER_PATH
 )
-
 
 query_features = (
     vectorizer.transform(
@@ -791,13 +589,11 @@ query_features = (
     )
 )
 
-
 decision = (
     classifier.decision_function(
         query_features
     )
 )
-
 
 classes = np.asarray(
     [
@@ -807,12 +603,10 @@ classes = np.asarray(
     dtype=object,
 )
 
-
 k_mc = min(
     TOP_MICROCATS,
     len(classes),
 )
-
 
 mc_positions = np.argpartition(
     decision,
@@ -820,9 +614,7 @@ mc_positions = np.argpartition(
     axis=1,
 )[:, -k_mc:]
 
-
 predicted_microcats = []
-
 
 for i in range(
     len(queries)
@@ -847,20 +639,11 @@ for i in range(
         ].tolist()
     )
 
-
-# =========================================================
-# MICROCAT -> ITEMS
-# =========================================================
-
-print(
-    "Строим microcat index..."
-)
-
+print("Строим microcat index...")
 
 microcat_to_indices = (
     defaultdict(list)
 )
-
 
 for idx, mc in enumerate(
     item_microcats
@@ -875,7 +658,6 @@ for idx, mc in enumerate(
         idx
     )
 
-
 for mc in list(
     microcat_to_indices
 ):
@@ -889,15 +671,7 @@ for mc in list(
         dtype=np.int64,
     )
 
-
-# =========================================================
-# LOAD TRAIN HISTORY + GEO DATA
-# =========================================================
-
-print(
-    "\nЗагружаем train history..."
-)
-
+print("\nЗагружаем train history...")
 
 train = pd.read_parquet(
     TRAIN_PATH,
@@ -910,7 +684,6 @@ train = pd.read_parquet(
     ],
 )
 
-
 train[
     "item_id"
 ] = (
@@ -919,7 +692,6 @@ train[
     ]
     .astype(str)
 )
-
 
 train[
     "_norm_query"
@@ -930,7 +702,6 @@ train[
     ]
 ]
 
-
 train[
     "_mc"
 ] = [
@@ -940,15 +711,7 @@ train[
     ]
 ]
 
-
-# =========================================================
-# EXACT HISTORY ITEMS
-# =========================================================
-
-print(
-    "Строим exact-history items..."
-)
-
+print("Строим exact-history items...")
 
 history_in_benchmark = train[
     train[
@@ -957,7 +720,6 @@ history_in_benchmark = train[
         benchmark_item_set
     )
 ].copy()
-
 
 hist_counts = (
     history_in_benchmark
@@ -983,7 +745,6 @@ hist_counts = (
     )
 )
 
-
 history_items = (
     hist_counts
     .groupby(
@@ -995,15 +756,7 @@ history_items = (
     .to_dict()
 )
 
-
-# =========================================================
-# HISTORICAL MICROCATS
-# =========================================================
-
-print(
-    "Строим historical microcats..."
-)
-
+print("Строим historical microcats...")
 
 mc_counts = (
     train
@@ -1034,9 +787,7 @@ mc_counts = (
     )
 )
 
-
 history_microcats = {}
-
 
 for (
     query,
@@ -1055,23 +806,7 @@ for (
         .tolist()
     )
 
-
-# =========================================================
-# NEW: GEO PRIOR
-# =========================================================
-#
-# search_location_id ->
-# historically likely item_location_id
-#
-# Exclude exact location because exact already receives
-# LOCATION_BONUS.
-#
-# =========================================================
-
-print(
-    "\nСтроим GEO PRIOR..."
-)
-
+print("\nСтроим GEO PRIOR...")
 
 geo_counts = (
     train
@@ -1088,7 +823,6 @@ geo_counts = (
     )
 )
 
-
 geo_counts[
     "total"
 ] = (
@@ -1103,7 +837,6 @@ geo_counts[
     )
 )
 
-
 geo_counts[
     "prob"
 ] = (
@@ -1115,7 +848,6 @@ geo_counts[
         "total"
     ]
 )
-
 
 geo_counts = (
     geo_counts
@@ -1131,9 +863,7 @@ geo_counts = (
     )
 )
 
-
 geo_map = {}
-
 
 for (
     search_location,
@@ -1171,22 +901,11 @@ for (
         ]
     )
 
+print( "Geo search locations:",len(geo_map),)
 
-print(
-    "Geo search locations:",
-    len(geo_map),
-)
-
-# =========================================================
-# ALT-GEO BGE RETRIEVAL
-# =========================================================
-
-print(
-    "\nAlternative-GEO BGE retrieval..."
-)
+print("\nAlternative-GEO BGE retrieval...")
 
 alt_geo_bge_top = []
-
 
 for i in tqdm(
     range(
@@ -1217,7 +936,6 @@ for i in tqdm(
         if location in location_to_indices
     ]
 
-
     if not pools:
 
         alt_geo_bge_top.append(
@@ -1229,13 +947,11 @@ for i in tqdm(
 
         continue
 
-
     candidate_indices = np.unique(
         np.concatenate(
             pools
         )
     )
-
 
     candidate_scores = (
         item_embeddings[
@@ -1246,7 +962,6 @@ for i in tqdm(
         ]
     )
 
-
     alt_geo_bge_top.append(
         sorted_top_k(
             candidate_scores,
@@ -1255,17 +970,9 @@ for i in tqdm(
         )
     )
 
-
-# =========================================================
-# ALT-GEO BM25 RETRIEVAL
-# =========================================================
-
-print(
-    "Alternative-GEO BM25 retrieval..."
-)
+print("Alternative-GEO BM25 retrieval...")
 
 alt_geo_bm25_top = []
-
 
 for i in tqdm(
     range(
@@ -1288,9 +995,7 @@ for i in tqdm(
         )
     }
 
-
     candidates = []
-
 
     if alt_location_set:
 
@@ -1311,7 +1016,6 @@ for i in tqdm(
                     idx
                 )
 
-
                 if (
                     len(candidates)
                     >= K_ALT_GEO_BM25
@@ -1319,18 +1023,12 @@ for i in tqdm(
 
                     break
 
-
     alt_geo_bm25_top.append(
         np.asarray(
             candidates,
             dtype=np.int64,
         )
     )
-
-
-# =========================================================
-# ALT GEO STATS
-# =========================================================
 
 alt_bge_nonempty = sum(
     len(x) > 0
@@ -1342,24 +1040,9 @@ alt_bm25_nonempty = sum(
     for x in alt_geo_bm25_top
 )
 
+print( "ALT BGE non-empty queries:",alt_bge_nonempty, "/",len(queries),)
 
-print(
-    "ALT BGE non-empty queries:",
-    alt_bge_nonempty,
-    "/",
-    len(queries),
-)
-
-print(
-    "ALT BM25 non-empty queries:",
-    alt_bm25_nonempty,
-    "/",
-    len(queries),
-)
-
-# =========================================================
-# QUERY HISTORY INFO
-# =========================================================
+print( "ALT BM25 non-empty queries:",alt_bm25_nonempty, "/",len(queries),)
 
 benchmark_norm_queries = [
     norm_query(x)
@@ -1368,58 +1051,24 @@ benchmark_norm_queries = [
     ]
 ]
 
-
 usable_history_queries = sum(
     q in history_items
     for q in benchmark_norm_queries
 )
 
+print("Queries с usable exact-history:", usable_history_queries)
 
-print(
-    "Queries с usable exact-history:",
-    usable_history_queries,
-)
-
-
-# =========================================================
-# EXACT-QUERY HISTORY PROTOTYPE
-# =========================================================
-#
-# For benchmark queries that exactly occurred in train:
-#
-# train positive items
-#       ↓
-# count-weighted mean BGE vector
-#       ↓
-# retrieve semantically similar BENCHMARK items
-#
-# This does NOT affect cold benchmark queries.
-#
-# =========================================================
-
-print(
-    "\nBuilding exact-query history prototypes..."
-)
-
-
-# ---------------------------------------------------------
-# Load train item embeddings.
-#
-# mmap keeps memory usage lower. We only access historical
-# item rows needed for the 362-ish warm benchmark queries.
-# ---------------------------------------------------------
+print("\nBuilding exact-query history prototypes...")
 
 train_item_embeddings = np.load(
     TRAIN_BGE_EMB_PATH,
     mmap_mode="r",
 )
 
-
 train_embedding_ids = np.load(
     TRAIN_BGE_IDS_PATH,
     allow_pickle=True,
 )
-
 
 assert (
     len(train_item_embeddings)
@@ -1427,12 +1076,10 @@ assert (
     len(train_embedding_ids)
 )
 
-
 train_embedding_ids = (
     train_embedding_ids
     .astype(str)
 )
-
 
 train_item_id_to_embedding_idx = {
     item_id: idx
@@ -1441,17 +1088,6 @@ train_item_id_to_embedding_idx = {
         train_embedding_ids
     )
 }
-
-
-# ---------------------------------------------------------
-# Full historical query-item counts.
-#
-# IMPORTANT:
-# Unlike exact-history pinning, prototype is allowed to use
-# historical train items that do NOT occur in benchmark.
-#
-# Their embeddings still describe what users selected.
-# ---------------------------------------------------------
 
 full_history_counts = (
     train
@@ -1467,11 +1103,9 @@ full_history_counts = (
     )
 )
 
-
 benchmark_warm_query_set = set(
     benchmark_norm_queries
 )
-
 
 full_history_counts = (
     full_history_counts[
@@ -1483,7 +1117,6 @@ full_history_counts = (
     ]
 )
 
-
 history_count_groups = {
     query: group
     for query, group
@@ -1492,27 +1125,14 @@ history_count_groups = {
     )
 }
 
-
-# ---------------------------------------------------------
-# Build one normalized prototype vector per warm query.
-# ---------------------------------------------------------
-
 warm_query_positions = []
 
 warm_prototype_vectors = []
 
-
-# Number of UNIQUE train historical positive items
-# available for every benchmark query.
-#
-# 0  -> cold query
-# 1  -> singleton-history query
-# 2+ -> multi-history query
 history_proto_hist_len = np.zeros(
     len(queries),
     dtype=np.int16,
 )
-
 
 for i, nq in enumerate(
     benchmark_norm_queries
@@ -1524,7 +1144,6 @@ for i, nq in enumerate(
         )
     )
 
-
     if (
         group is None
         or len(group) == 0
@@ -1532,11 +1151,9 @@ for i, nq in enumerate(
 
         continue
 
-
     embedding_indices = []
 
     counts = []
-
 
     for row in group.itertuples(
         index=False
@@ -1546,22 +1163,18 @@ for i, nq in enumerate(
             row.item_id
         )
 
-
         embedding_idx = (
             train_item_id_to_embedding_idx.get(
                 item_id
             )
         )
 
-
         if embedding_idx is None:
             continue
-
 
         embedding_indices.append(
             embedding_idx
         )
-
 
         counts.append(
             float(
@@ -1569,30 +1182,24 @@ for i, nq in enumerate(
             )
         )
 
-
     if not embedding_indices:
         continue
 
-
-    # Save history cardinality for conditional weighting.
     history_proto_hist_len[
         i
     ] = len(
         embedding_indices
     )
 
-
     embedding_indices = np.asarray(
         embedding_indices,
         dtype=np.int64,
     )
 
-
     counts = np.asarray(
         counts,
         dtype=np.float32,
     )
-
 
     historical_embeddings = np.asarray(
         train_item_embeddings[
@@ -1601,8 +1208,6 @@ for i, nq in enumerate(
         dtype=np.float32,
     )
 
-
-    # Count-weighted prototype was best in validation.
     prototype = np.average(
         historical_embeddings,
         axis=0,
@@ -1611,38 +1216,24 @@ for i, nq in enumerate(
         np.float32
     )
 
-
     norm = np.linalg.norm(
         prototype
     )
 
-
     if norm <= 1e-12:
         continue
 
-
     prototype /= norm
-
 
     warm_query_positions.append(
         i
     )
 
-
     warm_prototype_vectors.append(
         prototype
     )
 
-
-print(
-    "Warm benchmark queries with prototype:",
-    len(
-        warm_query_positions
-    ),
-    "/",
-    len(queries),
-)
-
+print( "Warm benchmark queries with prototype:",len(warm_query_positions), "/",len(queries),)
 
 history_proto_top = [
     np.array(
@@ -1654,11 +1245,6 @@ history_proto_top = [
     )
 ]
 
-
-# ---------------------------------------------------------
-# Retrieve benchmark candidates using prototype vectors.
-# ---------------------------------------------------------
-
 if warm_prototype_vectors:
 
     warm_prototype_vectors = np.vstack(
@@ -1667,14 +1253,9 @@ if warm_prototype_vectors:
         np.float32
     )
 
-
-    print(
-        "History prototype retrieval..."
-    )
-
+    print("History prototype retrieval...")
 
     PROTO_BLOCK_SIZE = 20
-
 
     for start in tqdm(
         range(
@@ -1695,7 +1276,6 @@ if warm_prototype_vectors:
             ),
         )
 
-
         scores = (
             warm_prototype_vectors[
                 start:end
@@ -1704,12 +1284,10 @@ if warm_prototype_vectors:
             item_embeddings.T
         )
 
-
         k = min(
             HISTORY_PROTO_TOP_K,
             len(items),
         )
-
 
         positions = np.argpartition(
             scores,
@@ -1719,7 +1297,6 @@ if warm_prototype_vectors:
             :,
             -k:
         ]
-
 
         for row in range(
             end - start
@@ -1731,7 +1308,6 @@ if warm_prototype_vectors:
                 ]
             )
 
-
             order = np.argsort(
                 scores[
                     row,
@@ -1739,13 +1315,11 @@ if warm_prototype_vectors:
                 ]
             )[::-1]
 
-
             benchmark_query_idx = (
                 warm_query_positions[
                     start + row
                 ]
             )
-
 
             history_proto_top[
                 benchmark_query_idx
@@ -1758,22 +1332,13 @@ if warm_prototype_vectors:
                 )
             )
 
-
 proto_nonempty = sum(
     len(x) > 0
     for x in history_proto_top
 )
 
+print( "History prototype non-empty:",proto_nonempty, "/",len(queries),)
 
-print(
-    "History prototype non-empty:",
-    proto_nonempty,
-    "/",
-    len(queries),
-)
-
-
-# Free the large train embedding id structures.
 del train_item_id_to_embedding_idx
 del train_embedding_ids
 del full_history_counts
@@ -1781,21 +1346,11 @@ del history_count_groups
 
 gc.collect()
 
-
-
-# =========================================================
-# MICROCAT BGE CANDIDATES
-# =========================================================
-
-print(
-    "\nMicrocat BGE candidates..."
-)
-
+print("\nMicrocat BGE candidates...")
 
 microcat_bge_top = []
 
 combined_microcat_sets = []
-
 
 for i in tqdm(
     range(
@@ -1809,8 +1364,6 @@ for i in tqdm(
 
     selected = []
 
-
-    # Historical microcats first
     for mc in (
         history_microcats.get(
             nq,
@@ -1827,8 +1380,6 @@ for i in tqdm(
                 mc
             )
 
-
-    # Classifier microcats
     for mc in (
         predicted_microcats[i]
     ):
@@ -1842,22 +1393,17 @@ for i in tqdm(
                 mc
             )
 
-
-    # Same as v1
     selected = (
         selected[:10]
     )
-
 
     selected_set = set(
         selected
     )
 
-
     combined_microcat_sets.append(
         selected_set
     )
-
 
     pools = [
         microcat_to_indices[
@@ -1866,7 +1412,6 @@ for i in tqdm(
         for mc in selected
         if mc in microcat_to_indices
     ]
-
 
     if not pools:
 
@@ -1879,13 +1424,11 @@ for i in tqdm(
 
         continue
 
-
     candidate_indices = np.unique(
         np.concatenate(
             pools
         )
     )
-
 
     candidate_scores = (
         item_embeddings[
@@ -1893,7 +1436,6 @@ for i in tqdm(
         ]
         @ query_embeddings[i]
     )
-
 
     microcat_bge_top.append(
         sorted_top_k(
@@ -1903,32 +1445,11 @@ for i in tqdm(
         )
     )
 
-
-# =========================================================
-# JOINT LOCATION × MICROCAT BGE
-# =========================================================
-#
-# IMPORTANT:
-# Здесь используем именно classifier top-5 microcats,
-# как в validation, где сигнал подтвердился:
-#
-# TUNE:    +0.893 pp combined
-# CONFIRM: +0.411 pp combined
-#
-# EXACT × MICROCAT BGE weight = 0.50
-# ALT   × MICROCAT BGE weight = 0.25
-#
-# =========================================================
-
-print(
-    "\nExact/ALT location × microcat BGE candidates..."
-)
-
+print("\nExact/ALT location × microcat BGE candidates...")
 
 exact_mc_bge_top = []
 
 alt_mc_bge_top = []
-
 
 for i in tqdm(
     range(
@@ -1942,33 +1463,17 @@ for i in tqdm(
         ]
     )
 
-
-    # -----------------------------------------------------
-    # IMPORTANT:
-    # validation использовала classifier TOP-5,
-    # поэтому новый joint-channel строим именно по ним.
-    #
-    # Historical microcats продолжают использоваться
-    # старым production microcat channel — его не меняем.
-    # -----------------------------------------------------
-
     selected_mc_set = {
         mc
         for mc in predicted_microcats[i]
         if mc is not None
     }
 
-
-    # -----------------------------------------------------
-    # BUILD MICROCAT ITEM POOL
-    # -----------------------------------------------------
-
     pools = [
         microcat_to_indices[mc]
         for mc in selected_mc_set
         if mc in microcat_to_indices
     ]
-
 
     if not pools:
 
@@ -1979,7 +1484,6 @@ for i in tqdm(
             )
         )
 
-
         alt_mc_bge_top.append(
             np.array(
                 [],
@@ -1987,20 +1491,13 @@ for i in tqdm(
             )
         )
 
-
         continue
-
 
     mc_indices = np.unique(
         np.concatenate(
             pools
         )
     )
-
-
-    # =====================================================
-    # EXACT LOCATION ∩ MICROCAT
-    # =====================================================
 
     exact_mask = (
         item_locations[
@@ -2010,13 +1507,11 @@ for i in tqdm(
         search_location
     )
 
-
     exact_indices = (
         mc_indices[
             exact_mask
         ]
     )
-
 
     if len(
         exact_indices
@@ -2029,7 +1524,6 @@ for i in tqdm(
             )
         )
 
-
     else:
 
         exact_scores = (
@@ -2039,7 +1533,6 @@ for i in tqdm(
             @ query_embeddings[i]
         )
 
-
         exact_mc_bge_top.append(
             sorted_top_k(
                 exact_scores,
@@ -2047,11 +1540,6 @@ for i in tqdm(
                 K_JOINT_BGE,
             )
         )
-
-
-    # =====================================================
-    # ALT LOCATION ∩ MICROCAT
-    # =====================================================
 
     alt_locations = {
         location
@@ -2062,7 +1550,6 @@ for i in tqdm(
         )
     }
 
-
     if not alt_locations:
 
         alt_mc_bge_top.append(
@@ -2072,9 +1559,7 @@ for i in tqdm(
             )
         )
 
-
         continue
-
 
     alt_mask = np.isin(
         item_locations[
@@ -2085,13 +1570,11 @@ for i in tqdm(
         ),
     )
 
-
     alt_indices = (
         mc_indices[
             alt_mask
         ]
     )
-
 
     if len(
         alt_indices
@@ -2104,7 +1587,6 @@ for i in tqdm(
             )
         )
 
-
     else:
 
         alt_scores = (
@@ -2114,7 +1596,6 @@ for i in tqdm(
             @ query_embeddings[i]
         )
 
-
         alt_mc_bge_top.append(
             sorted_top_k(
                 alt_scores,
@@ -2123,38 +1604,19 @@ for i in tqdm(
             )
         )
 
-
-# =========================================================
-# JOINT RETRIEVAL STATS
-# =========================================================
-
 exact_mc_nonempty = sum(
     len(x) > 0
     for x in exact_mc_bge_top
 )
-
 
 alt_mc_nonempty = sum(
     len(x) > 0
     for x in alt_mc_bge_top
 )
 
+print( "Exact-MC non-empty:",exact_mc_nonempty, "/",len(queries),)
 
-print(
-    "Exact-MC non-empty:",
-    exact_mc_nonempty,
-    "/",
-    len(queries),
-)
-
-
-print(
-    "ALT-MC non-empty:",
-    alt_mc_nonempty,
-    "/",
-    len(queries),
-)
-
+print( "ALT-MC non-empty:",alt_mc_nonempty, "/",len(queries),)
 
 assert (
     len(exact_mc_bge_top)
@@ -2162,30 +1624,19 @@ assert (
     len(queries)
 )
 
-
 assert (
     len(alt_mc_bge_top)
     ==
     len(queries)
 )
 
-
-
-# =========================================================
-# FINAL FUSION
-# =========================================================
-
-print(
-    "\nФормируем answer.csv..."
-)
-
+print("\nФормируем answer.csv...")
 
 answers = []
 
 history_inserted_total = 0
 
 geo_candidate_boosts = 0
-
 
 for i in tqdm(
     range(
@@ -2195,21 +1646,11 @@ for i in tqdm(
 
     fusion_scores = {}
 
-
-    # -----------------------------------------------------
-    # GLOBAL BM25
-    # -----------------------------------------------------
-
     add_rrf(
         fusion_scores,
         global_bm25_top[i],
         1.0,
     )
-
-
-    # -----------------------------------------------------
-    # GLOBAL BGE
-    # -----------------------------------------------------
 
     add_rrf(
         fusion_scores,
@@ -2217,21 +1658,11 @@ for i in tqdm(
         BGE_GLOBAL_WEIGHT,
     )
 
-
-    # -----------------------------------------------------
-    # LOCAL BGE
-    # -----------------------------------------------------
-
     add_rrf(
         fusion_scores,
         local_bge_top[i],
         LOCAL_BGE_WEIGHT,
     )
-
-
-    # -----------------------------------------------------
-    # LOCAL BM25
-    # -----------------------------------------------------
 
     add_rrf(
         fusion_scores,
@@ -2239,20 +1670,11 @@ for i in tqdm(
         LOCAL_BM25_WEIGHT,
     )
 
-    # -----------------------------------------------------
-    # ALT-GEO BGE
-    # -----------------------------------------------------
-
     add_rrf(
         fusion_scores,
         alt_geo_bge_top[i],
         ALT_GEO_BGE_WEIGHT,
     )
-
-
-    # -----------------------------------------------------
-    # ALT-GEO BM25
-    # -----------------------------------------------------
 
     add_rrf(
         fusion_scores,
@@ -2260,47 +1682,17 @@ for i in tqdm(
         ALT_GEO_BM25_WEIGHT,
     )
 
-    # -----------------------------------------------------
-    # EXACT LOCATION × MICROCAT BGE
-    # -----------------------------------------------------
-
     add_rrf(
         fusion_scores,
         exact_mc_bge_top[i],
         EXACT_MC_BGE_WEIGHT,
     )
 
-
-    # -----------------------------------------------------
-    # ALT LOCATION × MICROCAT BGE
-    # -----------------------------------------------------
-
     add_rrf(
         fusion_scores,
         alt_mc_bge_top[i],
         ALT_MC_BGE_WEIGHT,
     )
-    # -----------------------------------------------------
-    # HISTORY PROTOTYPE
-    # -----------------------------------------------------
-    #
-    # Empty for cold queries, therefore only exact-history
-    # benchmark queries are changed.
-    #
-    # -----------------------------------------------------
-
-    # -----------------------------------------------------
-    # CONDITIONAL HISTORY PROTOTYPE WEIGHT
-    # -----------------------------------------------------
-    #
-    # Singleton-history queries were independently validated
-    # with a stronger prototype weight.
-    #
-    # 1 history item  -> 1.25
-    # 2+ items        -> 0.75
-    #
-    # Cold queries have an empty history_proto_top anyway.
-    # -----------------------------------------------------
 
     if (
         history_proto_hist_len[i]
@@ -2318,17 +1710,11 @@ for i in tqdm(
             HISTORY_PROTO_WEIGHT_DEFAULT
         )
 
-
     add_rrf(
         fusion_scores,
         history_proto_top[i],
         history_proto_weight,
     )
-
-
-    # -----------------------------------------------------
-    # MICROCAT BGE
-    # -----------------------------------------------------
 
     add_rrf(
         fusion_scores,
@@ -2336,28 +1722,17 @@ for i in tqdm(
         MICROCAT_SOURCE_WEIGHT,
     )
 
-
-    # -----------------------------------------------------
-    # QUERY INFO
-    # -----------------------------------------------------
-
     search_location = (
         queries.iloc[i][
             "search_location_id"
         ]
     )
 
-
     selected_microcats = (
         combined_microcat_sets[
             i
         ]
     )
-
-
-    # -----------------------------------------------------
-    # GEO PROBABILITY MAP
-    # -----------------------------------------------------
 
     geo_probabilities = {
         location:
@@ -2373,11 +1748,6 @@ for i in tqdm(
         )
     }
 
-
-    # -----------------------------------------------------
-    # BONUSES
-    # -----------------------------------------------------
-
     for idx in fusion_scores:
 
         item_location = (
@@ -2386,8 +1756,6 @@ for i in tqdm(
             ]
         )
 
-
-        # Exact-location bonus
         if (
             item_location
             == search_location
@@ -2399,8 +1767,6 @@ for i in tqdm(
                 LOCATION_BONUS
             )
 
-
-        # Microcat bonus
         if (
             item_microcats[
                 idx
@@ -2414,17 +1780,11 @@ for i in tqdm(
                 MICROCAT_BONUS
             )
 
-
-        # =================================================
-        # NEW GEO BONUS
-        # =================================================
-
         geo_probability = (
             geo_probabilities.get(
                 item_location
             )
         )
-
 
         if (
             geo_probability
@@ -2441,22 +1801,15 @@ for i in tqdm(
 
             geo_candidate_boosts += 1
 
-
-    # -----------------------------------------------------
-    # RANK
-    # -----------------------------------------------------
-
     ranked_indices = sorted(
         fusion_scores,
         key=fusion_scores.get,
         reverse=True,
     )
 
-
     result = []
 
     seen = set()
-
 
     nq = (
         benchmark_norm_queries[
@@ -2464,22 +1817,12 @@ for i in tqdm(
         ]
     )
 
-
-    # -----------------------------------------------------
-    # EXACT HISTORY FIRST
-    # -----------------------------------------------------
-    #
-    # Preserve v1 strategy.
-    #
-    # -----------------------------------------------------
-
     historical_items = (
         history_items.get(
             nq,
             [],
         )
     )
-
 
     for item_id in (
         historical_items
@@ -2502,17 +1845,11 @@ for i in tqdm(
 
             history_inserted_total += 1
 
-
             if (
                 len(result)
                 >= 50
             ):
                 break
-
-
-    # -----------------------------------------------------
-    # FILL FROM GEO-IMPROVED FUSION
-    # -----------------------------------------------------
 
     if (
         len(result)
@@ -2543,17 +1880,11 @@ for i in tqdm(
                 item_id
             )
 
-
             if (
                 len(result)
                 >= 50
             ):
                 break
-
-
-    # -----------------------------------------------------
-    # SAFETY FALLBACK
-    # -----------------------------------------------------
 
     if (
         len(result)
@@ -2590,17 +1921,11 @@ for i in tqdm(
             ):
                 break
 
-
     answers.append(
         " ".join(
             result[:50]
         )
     )
-
-
-# =========================================================
-# CREATE SUBMISSION
-# =========================================================
 
 submission = pd.DataFrame(
     {
@@ -2614,15 +1939,7 @@ submission = pd.DataFrame(
     }
 )
 
-
-# =========================================================
-# STRICT VALIDATION
-# =========================================================
-
-print(
-    "\nПроверяем answer.csv..."
-)
-
+print("\nПроверяем answer.csv...")
 
 assert list(
     submission.columns
@@ -2631,12 +1948,10 @@ assert list(
     "answer",
 ]
 
-
 assert (
     len(submission)
     == 2452
 )
-
 
 assert (
     submission[
@@ -2644,7 +1959,6 @@ assert (
     ].nunique()
     == 2452
 )
-
 
 assert not (
     submission[
@@ -2654,14 +1968,11 @@ assert not (
     .any()
 )
 
-
 hex_pattern = re.compile(
     r"^[0-9a-f]{16}$"
 )
 
-
 lengths = []
-
 
 for row_idx, answer in enumerate(
     submission[
@@ -2677,7 +1988,6 @@ for row_idx, answer in enumerate(
         len(ids)
     )
 
-
     assert (
         len(ids)
         == 50
@@ -2685,7 +1995,6 @@ for row_idx, answer in enumerate(
         f"Row {row_idx}: "
         f"{len(ids)} items"
     )
-
 
     assert (
         len(ids)
@@ -2697,7 +2006,6 @@ for row_idx, answer in enumerate(
         f"in row {row_idx}"
     )
 
-
     for item_id in ids:
 
         assert (
@@ -2708,7 +2016,6 @@ for row_idx, answer in enumerate(
             f"{item_id}"
         )
 
-
         assert (
             hex_pattern.fullmatch(
                 item_id
@@ -2718,34 +2025,16 @@ for row_idx, answer in enumerate(
             f"{item_id}"
         )
 
-
-# =========================================================
-# SAVE
-# =========================================================
-
 submission.to_csv(
     OUTPUT_PATH,
     index=False,
 )
 
+print( "\n" + "=" * 80)
 
-# =========================================================
-# COMPARE WITH ANSWER3
-# =========================================================
+print("V5 -> V6 DIFFERENCE")
 
-print(
-    "\n"
-    + "=" * 80
-)
-
-print(
-    "V5 -> V6 DIFFERENCE"
-)
-
-print(
-    "=" * 80
-)
-
+print( "=" * 80)
 
 if (
     BASELINE_PATH.exists()
@@ -2754,7 +2043,6 @@ if (
     baseline = pd.read_csv(
         BASELINE_PATH
     )
-
 
     assert (
         baseline[
@@ -2770,13 +2058,11 @@ if (
         .tolist()
     )
 
-
     changed_queries = 0
 
     total_replaced = 0
 
     max_replaced = 0
-
 
     for old_answer, new_answer in zip(
         baseline[
@@ -2799,7 +2085,6 @@ if (
             ).split()
         )
 
-
         replaced = (
             len(
                 old_ids
@@ -2809,31 +2094,26 @@ if (
             // 2
         )
 
-
         if (
             replaced > 0
         ):
 
             changed_queries += 1
 
-
         total_replaced += (
             replaced
         )
-
 
         max_replaced = max(
             max_replaced,
             replaced,
         )
 
-
     avg_replaced_all = (
         total_replaced
         /
         len(submission)
     )
-
 
     if (
         changed_queries > 0
@@ -2851,211 +2131,66 @@ if (
             0.0
         )
 
+    print( "Changed queries:",changed_queries, "/",len(submission),)
 
-    print(
-        "Changed queries:",
-        changed_queries,
-        "/",
-        len(submission),
-    )
+    print( "Changed query %:",round(changed_queries / len(submission) * 100,2,), "%",)
 
+    print("Total replaced items:", total_replaced)
 
-    print(
-        "Changed query %:",
-        round(
-            changed_queries
-            /
-            len(submission)
-            *
-            100,
-            2,
-        ),
-        "%",
-    )
+    print( "Avg replaced / all queries:",round(avg_replaced_all,3,),)
 
+    print( "Avg replaced / changed query:",round(avg_replaced_changed,3,),)
 
-    print(
-        "Total replaced items:",
-        total_replaced,
-    )
-
-
-    print(
-        "Avg replaced / all queries:",
-        round(
-            avg_replaced_all,
-            3,
-        ),
-    )
-
-
-    print(
-        "Avg replaced / changed query:",
-        round(
-            avg_replaced_changed,
-            3,
-        ),
-    )
-
-
-    print(
-        "Max replaced in one query:",
-        max_replaced,
-    )
-
+    print("Max replaced in one query:", max_replaced)
 
 else:
 
-    print(
-        "answer.csv не найден — "
-        "diff пропущен."
-    )
+    print( "answer.csv не найден — " "diff пропущен.")
 
+print( "\n" + "=" * 80)
 
-# =========================================================
-# FINAL
-# =========================================================
+print("ГОТОВО — FINAL ANSWER")
 
-print(
-    "\n"
-    + "=" * 80
-)
+print( "=" * 80)
 
-print(
-    "ГОТОВО — FINAL ANSWER"
-)
+print("Geo top-N:", GEO_TOP_N)
 
-print(
-    "=" * 80
-)
+print("Geo weight:", GEO_WEIGHT)
 
+print("Historical IDs inserted:", history_inserted_total)
 
-print(
-    "Geo top-N:",
-    GEO_TOP_N,
-)
+print("Geo candidate boosts:", geo_candidate_boosts)
 
+print( "Rows:",len(submission),)
 
-print(
-    "Geo weight:",
-    GEO_WEIGHT,
-)
+print( "Min items/query:",min(lengths),)
 
+print( "Max items/query:",max(lengths),)
 
-print(
-    "Historical IDs inserted:",
-    history_inserted_total,
-)
+print("Output:", OUTPUT_PATH)
 
+print( "Size:",OUTPUT_PATH.stat().st_size, "bytes",)
 
-print(
-    "Geo candidate boosts:",
-    geo_candidate_boosts,
-)
+print("\nПервые 2 строки:")
 
+print(submission.head(2).to_string(index=False))
 
-print(
-    "Rows:",
-    len(submission),
-)
+print("ALT GEO BGE weight:", ALT_GEO_BGE_WEIGHT)
 
+print("ALT GEO BM25 weight:", ALT_GEO_BM25_WEIGHT)
 
-print(
-    "Min items/query:",
-    min(lengths),
-)
+print("Exact-MC BGE weight:", EXACT_MC_BGE_WEIGHT)
 
+print("ALT-MC BGE weight:", ALT_MC_BGE_WEIGHT)
 
-print(
-    "Max items/query:",
-    max(lengths),
-)
+print("History prototype default weight:", HISTORY_PROTO_WEIGHT_DEFAULT)
 
+print("History prototype singleton weight:", HISTORY_PROTO_WEIGHT_SINGLETON)
 
-print(
-    "Output:",
-    OUTPUT_PATH,
-)
+print( "History prototype singleton queries:",int(np.sum(history_proto_hist_len == 1)),)
 
+print( "History prototype multi-history queries:",int(np.sum(history_proto_hist_len >= 2)),)
 
-print(
-    "Size:",
-    OUTPUT_PATH.stat().st_size,
-    "bytes",
-)
+print("History prototype top-K:", HISTORY_PROTO_TOP_K)
 
-
-print(
-    "\nПервые 2 строки:"
-)
-
-
-print(
-    submission
-    .head(2)
-    .to_string(
-        index=False
-    )
-)
-
-print(
-    "ALT GEO BGE weight:",
-    ALT_GEO_BGE_WEIGHT,
-)
-
-print(
-    "ALT GEO BM25 weight:",
-    ALT_GEO_BM25_WEIGHT,
-)
-
-print(
-    "Exact-MC BGE weight:",
-    EXACT_MC_BGE_WEIGHT,
-)
-
-print(
-    "ALT-MC BGE weight:",
-    ALT_MC_BGE_WEIGHT,
-)
-
-print(
-    "History prototype default weight:",
-    HISTORY_PROTO_WEIGHT_DEFAULT,
-)
-
-print(
-    "History prototype singleton weight:",
-    HISTORY_PROTO_WEIGHT_SINGLETON,
-)
-
-print(
-    "History prototype singleton queries:",
-    int(
-        np.sum(
-            history_proto_hist_len
-            ==
-            1
-        )
-    ),
-)
-
-print(
-    "History prototype multi-history queries:",
-    int(
-        np.sum(
-            history_proto_hist_len
-            >=
-            2
-        )
-    ),
-)
-
-print(
-    "History prototype top-K:",
-    HISTORY_PROTO_TOP_K,
-)
-
-print(
-    "History prototype queries:",
-    proto_nonempty,
-)
+print("History prototype queries:", proto_nonempty)

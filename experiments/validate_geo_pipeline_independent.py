@@ -12,11 +12,6 @@ from sentence_transformers import SentenceTransformer
 from sklearn.model_selection import GroupShuffleSplit
 from tqdm.auto import tqdm
 
-
-# =========================================================
-# CONFIG
-# =========================================================
-
 ROOT = Path(__file__).resolve().parent
 
 if ROOT.name == "data":
@@ -26,30 +21,15 @@ DATA_DIR = ROOT / "data"
 
 TRAIN_PATH = DATA_DIR / "train.parquet"
 
-BGE_EMB_PATH = (
-    DATA_DIR / "train_bge_embeddings.npy"
-)
+BGE_EMB_PATH = DATA_DIR / "train_bge_embeddings.npy"
 
-BGE_IDS_PATH = (
-    DATA_DIR / "train_bge_item_ids.npy"
-)
+BGE_IDS_PATH = DATA_DIR / "train_bge_item_ids.npy"
 
-BM25_DIR = (
-    DATA_DIR / "train_bm25_index"
-)
+BM25_DIR = DATA_DIR / "train_bm25_index"
 
-MICROCAT_VECTORIZER_PATH = (
-    DATA_DIR / "microcat_vectorizer.joblib"
-)
+MICROCAT_VECTORIZER_PATH = DATA_DIR / "microcat_vectorizer.joblib"
 
-MICROCAT_CLASSIFIER_PATH = (
-    DATA_DIR / "microcat_classifier.joblib"
-)
-
-
-# =========================================================
-# RETRIEVAL CONFIG
-# =========================================================
+MICROCAT_CLASSIFIER_PATH = DATA_DIR / "microcat_classifier.joblib"
 
 K_GLOBAL = 500
 
@@ -63,9 +43,7 @@ K_BM25_WIDE = 10000
 
 TOP_MICROCATS = 5
 
-
 RRF_K = 60
-
 
 BGE_GLOBAL_WEIGHT = 1.0
 
@@ -75,15 +53,9 @@ LOCAL_BM25_WEIGHT = 1.25
 
 MICROCAT_SOURCE_WEIGHT = 0.25
 
-
 LOCATION_BONUS = 0.020
 
 MICROCAT_BONUS = 0.010
-
-
-# =========================================================
-# GEO GRID
-# =========================================================
 
 GEO_TOP_NS = [
     1,
@@ -100,13 +72,7 @@ GEO_WEIGHTS = [
     0.120,
 ]
 
-
 RANDOM_STATE = 42
-
-
-# =========================================================
-# HELPERS
-# =========================================================
 
 def microcat_key(value):
 
@@ -127,7 +93,6 @@ def microcat_key(value):
         pass
 
     return str(value)
-
 
 def add_rrf(
     scores,
@@ -155,7 +120,6 @@ def add_rrf(
                 + rank
             )
         )
-
 
 def top_k_indices(
     scores,
@@ -202,11 +166,6 @@ def top_k_indices(
         ]
     ]
 
-
-# =========================================================
-# DEVICE
-# =========================================================
-
 if torch.backends.mps.is_available():
     DEVICE = "mps"
 
@@ -216,20 +175,9 @@ elif torch.cuda.is_available():
 else:
     DEVICE = "cpu"
 
+print("Device:", DEVICE)
 
-print(
-    "Device:",
-    DEVICE,
-)
-
-
-# =========================================================
-# LOAD TRAIN
-# =========================================================
-
-print(
-    "\nЗагружаем train..."
-)
+print("\nЗагружаем train...")
 
 train = pd.read_parquet(
     TRAIN_PATH
@@ -240,19 +188,9 @@ train["item_id"] = (
     .astype(str)
 )
 
-print(
-    "Rows:",
-    len(train),
-)
+print( "Rows:",len(train),)
 
-
-# =========================================================
-# QUERY-DISJOINT OUTER SPLIT
-# =========================================================
-
-print(
-    "\nСтроим query-disjoint split..."
-)
+print("\nСтроим query-disjoint split...")
 
 splitter = GroupShuffleSplit(
     n_splits=1,
@@ -283,7 +221,6 @@ holdout = (
     .copy()
 )
 
-
 query_overlap = (
     set(
         supervision[
@@ -302,26 +239,11 @@ assert len(
     query_overlap
 ) == 0
 
+print( "Supervision rows:",len(supervision),)
 
-print(
-    "Supervision rows:",
-    len(supervision),
-)
+print( "Holdout rows:",len(holdout),)
 
-print(
-    "Holdout rows:",
-    len(holdout),
-)
-
-print(
-    "Query overlap:",
-    len(query_overlap),
-)
-
-
-# =========================================================
-# BUILD QUERY GROUPS
-# =========================================================
+print( "Query overlap:",len(query_overlap),)
 
 QUERY_COLUMNS = [
     "search_query",
@@ -330,7 +252,6 @@ QUERY_COLUMNS = [
     "search_infm_params_text",
     "search_category",
 ]
-
 
 val_groups = (
     holdout
@@ -344,27 +265,7 @@ val_groups = (
     )
 )
 
-
-print(
-    "All holdout groups:",
-    len(val_groups),
-)
-
-
-# =========================================================
-# INDEPENDENT TEST SAMPLE
-# =========================================================
-#
-# Первые 1000 уже использовались
-# для предыдущего tuning.
-#
-# Поэтому здесь берём:
-#
-#     1000:4000
-#
-# То есть следующие 3000 групп.
-#
-# =========================================================
+print( "All holdout groups:",len(val_groups),)
 
 shuffled_val = (
     val_groups
@@ -377,14 +278,12 @@ shuffled_val = (
     )
 )
 
-
 if len(shuffled_val) < 4000:
 
     raise ValueError(
         f"Недостаточно holdout groups: "
         f"{len(shuffled_val)}"
     )
-
 
 sample = (
     shuffled_val
@@ -397,16 +296,7 @@ sample = (
     )
 )
 
-
-print(
-    "Independent validation groups:",
-    len(sample),
-)
-
-
-# =========================================================
-# ITEMS
-# =========================================================
+print( "Independent validation groups:",len(sample),)
 
 ITEM_COLUMNS = [
     "item_id",
@@ -416,7 +306,6 @@ ITEM_COLUMNS = [
     "item_location_id",
     "item_microcat_id",
 ]
-
 
 items = (
     train[
@@ -430,7 +319,6 @@ items = (
     )
 )
 
-
 item_ids = (
     items[
         "item_id"
@@ -439,14 +327,12 @@ item_ids = (
     .to_numpy()
 )
 
-
 item_locations = (
     items[
         "item_location_id"
     ]
     .to_numpy()
 )
-
 
 item_microcats = np.asarray(
     [
@@ -458,38 +344,23 @@ item_microcats = np.asarray(
     dtype=object,
 )
 
+print( "Items:",len(items),)
 
-print(
-    "Items:",
-    len(items),
-)
-
-
-# =========================================================
-# LOAD BGE EMBEDDINGS
-# =========================================================
-
-print(
-    "\nЗагружаем BGE embeddings..."
-)
-
+print("\nЗагружаем BGE embeddings...")
 
 item_embeddings = np.load(
     BGE_EMB_PATH
 )
-
 
 saved_item_ids = np.load(
     BGE_IDS_PATH,
     allow_pickle=True,
 )
 
-
 assert (
     len(item_embeddings)
     == len(items)
 )
-
 
 assert np.array_equal(
     saved_item_ids.astype(str),
@@ -499,24 +370,11 @@ assert np.array_equal(
     "не совпадает с embeddings!"
 )
 
+print("Embeddings:", item_embeddings.shape)
 
-print(
-    "Embeddings:",
-    item_embeddings.shape,
-)
-
-
-# =========================================================
-# LOCATION -> ITEM INDICES
-# =========================================================
-
-print(
-    "\nСтроим location index..."
-)
-
+print("\nСтроим location index...")
 
 location_to_indices = {}
-
 
 for (
     location,
@@ -533,20 +391,11 @@ for (
         )
     )
 
-
-# =========================================================
-# MICROCAT -> ITEM INDICES
-# =========================================================
-
-print(
-    "Строим microcat index..."
-)
-
+print("Строим microcat index...")
 
 microcat_to_indices = (
     defaultdict(list)
 )
-
 
 for idx, mc in enumerate(
     item_microcats
@@ -561,7 +410,6 @@ for idx, mc in enumerate(
         idx
     )
 
-
 for mc in list(
     microcat_to_indices
 ):
@@ -575,20 +423,7 @@ for mc in list(
         dtype=np.int64,
     )
 
-
-# =========================================================
-# BUILD GEO PRIOR
-# =========================================================
-#
-# Только supervision.
-# Holdout labels сюда не попадают.
-#
-# =========================================================
-
-print(
-    "\nСтроим geo prior..."
-)
-
+print("\nСтроим geo prior...")
 
 geo_counts = (
     supervision
@@ -605,7 +440,6 @@ geo_counts = (
     )
 )
 
-
 geo_counts[
     "total"
 ] = (
@@ -615,7 +449,6 @@ geo_counts[
     )["count"]
     .transform("sum")
 )
-
 
 geo_counts[
     "prob"
@@ -628,7 +461,6 @@ geo_counts[
         "total"
     ]
 )
-
 
 geo_counts = (
     geo_counts
@@ -644,9 +476,7 @@ geo_counts = (
     )
 )
 
-
 geo_map = {}
-
 
 for (
     search_location,
@@ -663,8 +493,6 @@ for (
         )
     ):
 
-        # exact location уже имеет
-        # LOCATION_BONUS = 0.020
         if (
             row.item_location_id
             == search_location
@@ -685,34 +513,16 @@ for (
         search_location
     ] = values
 
+print( "Geo search locations:",len(geo_map),)
 
-print(
-    "Geo search locations:",
-    len(geo_map),
-)
-
-
-# =========================================================
-# LOAD BGE MODEL
-# =========================================================
-
-print(
-    "\nЗагружаем BGE-M3..."
-)
-
+print("\nЗагружаем BGE-M3...")
 
 model = SentenceTransformer(
     "BAAI/bge-m3",
     device=DEVICE,
 )
 
-
 model.max_seq_length = 128
-
-
-# =========================================================
-# QUERY EMBEDDINGS
-# =========================================================
 
 query_texts = (
     sample[
@@ -723,11 +533,7 @@ query_texts = (
     .tolist()
 )
 
-
-print(
-    "\nКодируем validation queries..."
-)
-
+print("\nКодируем validation queries...")
 
 query_embeddings = model.encode(
     query_texts,
@@ -739,18 +545,9 @@ query_embeddings = model.encode(
     np.float32
 )
 
-
-# =========================================================
-# GLOBAL BGE TOP-500
-# =========================================================
-
-print(
-    "\nGlobal BGE top-500..."
-)
-
+print("\nGlobal BGE top-500...")
 
 global_bge_top = []
-
 
 for start in tqdm(
     range(
@@ -804,18 +601,9 @@ for start in tqdm(
             ]
         )
 
-
-# =========================================================
-# LOCAL BGE TOP-500
-# =========================================================
-
-print(
-    "\nLocal BGE top-500..."
-)
-
+print("\nLocal BGE top-500...")
 
 local_bge_top = []
-
 
 for i in tqdm(
     range(
@@ -864,15 +652,7 @@ for i in tqdm(
         )
     )
 
-
-# =========================================================
-# BM25
-# =========================================================
-
-print(
-    "\nЗагружаем BM25..."
-)
-
+print("\nЗагружаем BM25...")
 
 retriever = bm25s.BM25.load(
     str(
@@ -881,11 +661,9 @@ retriever = bm25s.BM25.load(
     load_corpus=False,
 )
 
-
 stemmer = Stemmer.Stemmer(
     "russian"
 )
-
 
 bm25_query_texts = (
     sample[
@@ -903,18 +681,13 @@ bm25_query_texts = (
     .astype(str)
 ).tolist()
 
-
 query_tokens = bm25s.tokenize(
     bm25_query_texts,
     stopwords=None,
     stemmer=stemmer,
 )
 
-
-print(
-    "BM25 top-10000..."
-)
-
+print("BM25 top-10000...")
 
 bm25_wide, _ = (
     retriever.retrieve(
@@ -926,7 +699,6 @@ bm25_wide, _ = (
     )
 )
 
-
 global_bm25_top = (
     bm25_wide[
         :,
@@ -934,18 +706,9 @@ global_bm25_top = (
     ]
 )
 
-
-# =========================================================
-# LOCAL BM25
-# =========================================================
-
-print(
-    "Local BM25..."
-)
-
+print("Local BM25...")
 
 local_bm25_top = []
-
 
 for i in tqdm(
     range(
@@ -991,30 +754,19 @@ for i in tqdm(
         )
     )
 
-
-# =========================================================
-# MICROCAT CLASSIFIER
-# =========================================================
-
-print(
-    "\nMicrocat classifier..."
-)
-
+print("\nMicrocat classifier...")
 
 vectorizer = joblib.load(
     MICROCAT_VECTORIZER_PATH
 )
 
-
 classifier = joblib.load(
     MICROCAT_CLASSIFIER_PATH
 )
 
-
 X = vectorizer.transform(
     query_texts
 )
-
 
 decision = (
     classifier
@@ -1022,7 +774,6 @@ decision = (
         X
     )
 )
-
 
 classes = np.asarray(
     [
@@ -1032,12 +783,10 @@ classes = np.asarray(
     dtype=object,
 )
 
-
 k_mc = min(
     TOP_MICROCATS,
     len(classes),
 )
-
 
 mc_positions = np.argpartition(
     decision,
@@ -1045,9 +794,7 @@ mc_positions = np.argpartition(
     axis=1,
 )[:, -k_mc:]
 
-
 predicted_microcats = []
-
 
 for i in range(
     len(sample)
@@ -1072,20 +819,11 @@ for i in range(
         ].tolist()
     )
 
-
-# =========================================================
-# MICROCAT BGE CANDIDATES
-# =========================================================
-
-print(
-    "Microcat BGE candidates..."
-)
-
+print("Microcat BGE candidates...")
 
 microcat_bge_top = []
 
 microcat_sets = []
-
 
 for i in tqdm(
     range(
@@ -1145,22 +883,13 @@ for i in tqdm(
         )
     )
 
-
-# =========================================================
-# BUILD BASELINE
-# =========================================================
-
-print(
-    "\nСтроим baseline fusion..."
-)
-
+print("\nСтроим baseline fusion...")
 
 base_scores = []
 
 baseline_top50 = []
 
 baseline_recalls = []
-
 
 for i in tqdm(
     range(
@@ -1170,41 +899,35 @@ for i in tqdm(
 
     scores = {}
 
-    # Global BM25
     add_rrf(
         scores,
         global_bm25_top[i],
         1.0,
     )
 
-    # Global BGE
     add_rrf(
         scores,
         global_bge_top[i],
         BGE_GLOBAL_WEIGHT,
     )
 
-    # Local BGE
     add_rrf(
         scores,
         local_bge_top[i],
         LOCAL_BGE_WEIGHT,
     )
 
-    # Local BM25
     add_rrf(
         scores,
         local_bm25_top[i],
         LOCAL_BM25_WEIGHT,
     )
 
-    # Microcat BGE
     add_rrf(
         scores,
         microcat_bge_top[i],
         MICROCAT_SOURCE_WEIGHT,
     )
-
 
     search_location = (
         sample.iloc[i][
@@ -1212,11 +935,9 @@ for i in tqdm(
         ]
     )
 
-
     selected_microcats = (
         microcat_sets[i]
     )
-
 
     for idx in scores:
 
@@ -1233,7 +954,6 @@ for i in tqdm(
                 LOCATION_BONUS
             )
 
-
         if (
             item_microcats[
                 idx
@@ -1247,23 +967,19 @@ for i in tqdm(
                 MICROCAT_BONUS
             )
 
-
     ranked = sorted(
         scores,
         key=scores.get,
         reverse=True,
     )
 
-
     top50 = (
         ranked[:50]
     )
 
-
     baseline_top50.append(
         top50
     )
-
 
     relevant = (
         sample.iloc[i][
@@ -1271,13 +987,11 @@ for i in tqdm(
         ]
     )
 
-
     predicted = set(
         item_ids[
             top50
         ]
     )
-
 
     recall = (
         len(
@@ -1291,16 +1005,13 @@ for i in tqdm(
         )
     )
 
-
     baseline_recalls.append(
         recall
     )
 
-
     base_scores.append(
         scores
     )
-
 
 baseline_mean = float(
     np.mean(
@@ -1308,47 +1019,21 @@ baseline_mean = float(
     )
 )
 
+print( "\n" + "=" * 90)
 
-print(
-    "\n"
-    + "=" * 90
-)
+print("INDEPENDENT BASELINE")
 
-print(
-    "INDEPENDENT BASELINE"
-)
+print( "=" * 90)
 
-print(
-    "=" * 90
-)
+print(f"Recall@50: " f"{baseline_mean:.5f} " f"({baseline_mean * 100:.2f}%)")
 
-print(
-    f"Recall@50: "
-    f"{baseline_mean:.5f} "
-    f"({baseline_mean * 100:.2f}%)"
-)
+print( "\n" + "=" * 90)
 
+print("INDEPENDENT GEO BONUS GRID")
 
-# =========================================================
-# GEO GRID
-# =========================================================
-
-print(
-    "\n"
-    + "=" * 90
-)
-
-print(
-    "INDEPENDENT GEO BONUS GRID"
-)
-
-print(
-    "=" * 90
-)
-
+print( "=" * 90)
 
 results = []
-
 
 for top_n in (
     GEO_TOP_NS
@@ -1368,7 +1053,6 @@ for top_n in (
 
         total_changed = 0
 
-
         for i in range(
             len(sample)
         ):
@@ -1379,7 +1063,6 @@ for top_n in (
                 ]
             )
 
-
             geo_values = (
                 geo_map.get(
                     search_location,
@@ -1388,7 +1071,6 @@ for top_n in (
                     :top_n
                 ]
             )
-
 
             geo_probabilities = {
                 location:
@@ -1401,11 +1083,9 @@ for top_n in (
                 in geo_values
             }
 
-
             scores = dict(
                 base_scores[i]
             )
-
 
             for idx in scores:
 
@@ -1415,13 +1095,11 @@ for top_n in (
                     ]
                 )
 
-
                 probability = (
                     geo_probabilities.get(
                         item_location
                     )
                 )
-
 
                 if (
                     probability
@@ -1436,18 +1114,15 @@ for top_n in (
                         probability
                     )
 
-
             ranked = sorted(
                 scores,
                 key=scores.get,
                 reverse=True,
             )
 
-
             top50 = (
                 ranked[:50]
             )
-
 
             old_top = set(
                 baseline_top50[
@@ -1459,7 +1134,6 @@ for top_n in (
                 top50
             )
 
-
             total_changed += (
                 len(
                     old_top
@@ -1469,20 +1143,17 @@ for top_n in (
                 // 2
             )
 
-
             relevant = (
                 sample.iloc[i][
                     "relevant_ids"
                 ]
             )
 
-
             predicted = set(
                 item_ids[
                     top50
                 ]
             )
-
 
             recall = (
                 len(
@@ -1496,18 +1167,15 @@ for top_n in (
                 )
             )
 
-
             recalls.append(
                 recall
             )
-
 
             old_recall = (
                 baseline_recalls[
                     i
                 ]
             )
-
 
             if (
                 recall
@@ -1516,7 +1184,6 @@ for top_n in (
 
                 improved += 1
 
-
             elif (
                 recall
                 < old_recall
@@ -1524,11 +1191,9 @@ for top_n in (
 
                 worse += 1
 
-
             else:
 
                 same += 1
-
 
         mean_recall = float(
             np.mean(
@@ -1536,20 +1201,17 @@ for top_n in (
             )
         )
 
-
         delta_pp = (
             mean_recall
             -
             baseline_mean
         ) * 100
 
-
         avg_changed = (
             total_changed
             /
             len(sample)
         )
-
 
         results.append(
             {
@@ -1579,26 +1241,11 @@ for top_n in (
             }
         )
 
-
-        print(
-            f"topN={top_n:<2} | "
-            f"weight={weight:>6.3f} | "
-            f"Recall={mean_recall * 100:6.2f}% | "
-            f"delta={delta_pp:+.3f} pp | "
-            f"+groups={improved:>4} | "
-            f"-groups={worse:>4} | "
-            f"changed={avg_changed:.2f}"
-        )
-
-
-# =========================================================
-# BEST CONFIGS
-# =========================================================
+        print(f"topN={top_n:<2} | " f"weight={weight:>6.3f} | " f"Recall={mean_recall * 100:6.2f}% | " f"delta={delta_pp:+.3f} pp | " f"+groups={improved:>4} | " f"-groups={worse:>4} | " f"changed={avg_changed:.2f}")
 
 result_df = pd.DataFrame(
     results
 )
-
 
 result_df = (
     result_df
@@ -1619,122 +1266,36 @@ result_df = (
     )
 )
 
+print( "\n" + "=" * 90)
 
-print(
-    "\n"
-    + "=" * 90
-)
+print("BEST INDEPENDENT GEO CONFIGS")
 
-print(
-    "BEST INDEPENDENT GEO CONFIGS"
-)
+print( "=" * 90)
 
-print(
-    "=" * 90
-)
-
-
-print(
-    result_df.head(
-        15
-    )
-    .to_string(
-        index=False,
-        formatters={
-            "recall":
-                lambda x:
-                f"{x * 100:.3f}%",
-
-            "delta_pp":
-                lambda x:
-                f"{x:+.3f}",
-        },
-    )
-)
-
-
-# =========================================================
-# ROBUSTNESS SUMMARY
-# =========================================================
+print(result_df.head(15).to_string(index=False,formatters={ "recall": lambda x: f"{x * 100:.3f}%", "delta_pp": lambda x: f"{x:+.3f}",},))
 
 best = (
     result_df.iloc[0]
 )
 
+print( "\n" + "=" * 90)
 
-print(
-    "\n"
-    + "=" * 90
-)
+print("SUMMARY")
 
-print(
-    "SUMMARY"
-)
+print( "=" * 90)
 
-print(
-    "=" * 90
-)
+print( "Independent baseline:",f"{baseline_mean * 100:.3f}%")
 
+print( "Best top_n:",int(best[ "top_n"]))
 
-print(
-    "Independent baseline:",
-    f"{baseline_mean * 100:.3f}%"
-)
+print( "Best weight:",float(best[ "weight"]))
 
+print( "Best Recall@50:",f"{best['recall'] * 100:.3f}%")
 
-print(
-    "Best top_n:",
-    int(
-        best[
-            "top_n"
-        ]
-    )
-)
+print( "Delta:",f"{best['delta_pp']:+.3f} pp")
 
+print( "Improved groups:",int(best[ "improved"]))
 
-print(
-    "Best weight:",
-    float(
-        best[
-            "weight"
-        ]
-    )
-)
+print( "Worse groups:",int(best[ "worse"]))
 
-
-print(
-    "Best Recall@50:",
-    f"{best['recall'] * 100:.3f}%"
-)
-
-
-print(
-    "Delta:",
-    f"{best['delta_pp']:+.3f} pp"
-)
-
-
-print(
-    "Improved groups:",
-    int(
-        best[
-            "improved"
-        ]
-    )
-)
-
-
-print(
-    "Worse groups:",
-    int(
-        best[
-            "worse"
-        ]
-    )
-)
-
-
-print(
-    "Avg changed items/query:",
-    f"{best['avg_changed']:.3f}"
-)
+print( "Avg changed items/query:",f"{best['avg_changed']:.3f}")
