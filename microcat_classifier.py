@@ -19,23 +19,11 @@ def build_vectorizer():
     """Combine word and character n-grams for short, noisy service queries."""
     return FeatureUnion(
         [
-            (
-                "word",
-                TfidfVectorizer(
-                    ngram_range=(1, 2),
-                    min_df=2,
-                    max_features=80_000,
-                    sublinear_tf=True,
-                ),
-            ),
+            ("word", TfidfVectorizer(ngram_range=(1, 2), min_df=2, max_features=80_000, sublinear_tf=True)),
             (
                 "char",
                 TfidfVectorizer(
-                    analyzer="char_wb",
-                    ngram_range=(3, 5),
-                    min_df=2,
-                    max_features=120_000,
-                    sublinear_tf=True,
+                    analyzer="char_wb", ngram_range=(3, 5), min_df=2, max_features=120_000, sublinear_tf=True
                 ),
             ),
         ]

@@ -15,12 +15,7 @@ BGE_EMBEDDINGS_PATH = DATA_DIR / "train_bge_embeddings.npy"
 BGE_ITEM_IDS_PATH = DATA_DIR / "train_bge_item_ids.npy"
 BM25_INDEX_PATH = DATA_DIR / "train_bm25_index"
 
-ITEM_COLUMNS = [
-    "item_title_raw",
-    "item_infm_params_text",
-    "item_description_raw",
-    "item_id",
-]
+ITEM_COLUMNS = ["item_title_raw", "item_infm_params_text", "item_description_raw", "item_id"]
 
 
 def select_device():
@@ -70,12 +65,7 @@ def ensure_bge_assets(items, texts):
     print("Building train BGE embeddings on", device)
     model = SentenceTransformer("BAAI/bge-m3", device=device)
     model.max_seq_length = 128
-    embeddings = model.encode(
-        texts,
-        batch_size=32,
-        normalize_embeddings=True,
-        show_progress_bar=True,
-    )
+    embeddings = model.encode(texts, batch_size=32, normalize_embeddings=True, show_progress_bar=True)
 
     np.save(BGE_EMBEDDINGS_PATH, embeddings)
     np.save(BGE_ITEM_IDS_PATH, item_ids)

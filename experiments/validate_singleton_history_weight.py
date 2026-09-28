@@ -69,15 +69,7 @@ ALT_MC_BGE_WEIGHT = 0.25
 
 PROTO_TOP_K = 500
 
-PROTO_WEIGHTS = [
-    0.50,
-    0.60,
-    0.75,
-    0.90,
-    1.00,
-    1.10,
-    1.25,
-]
+PROTO_WEIGHTS = [0.50, 0.60, 0.75, 0.90, 1.00, 1.10, 1.25]
 
 RANDOM_STATE = 2026
 
@@ -108,10 +100,7 @@ def microcat_key(value):
         if x.is_integer():
             return str(int(x))
 
-    except (
-        TypeError,
-        ValueError,
-    ):
+    except (TypeError, ValueError):
         pass
 
     return str(value)
@@ -132,45 +121,25 @@ def normalize_vector(vector):
     return vector / norm
 
 
-def add_rrf(
-    scores,
-    indices,
-    weight,
-):
+def add_rrf(scores, indices, weight):
 
     if weight == 0:
         return
 
-    for rank, idx in enumerate(
-        indices,
-        start=1,
-    ):
+    for rank, idx in enumerate(indices, start=1):
 
         idx = int(idx)
 
-        scores[idx] = scores.get(
-            idx,
-            0.0,
-        ) + weight / (RRF_K + rank)
+        scores[idx] = scores.get(idx, 0.0) + weight / (RRF_K + rank)
 
 
-def top_k_indices(
-    scores,
-    indices,
-    k,
-):
+def top_k_indices(scores, indices, k):
 
     if len(indices) == 0:
 
-        return np.array(
-            [],
-            dtype=np.int64,
-        )
+        return np.array([], dtype=np.int64)
 
-    k = min(
-        k,
-        len(indices),
-    )
+    k = min(k, len(indices))
 
     if k == len(indices):
 
@@ -178,31 +147,21 @@ def top_k_indices(
 
         return indices[order]
 
-    pos = np.argpartition(
-        scores,
-        -k,
-    )[-k:]
+    pos = np.argpartition(scores, -k)[-k:]
 
     order = np.argsort(scores[pos])[::-1]
 
     return indices[pos[order]]
 
 
-def recall_at_50(
-    predicted_indices,
-    target_ids,
-    item_ids,
-):
+def recall_at_50(predicted_indices, target_ids, item_ids):
 
     predicted = set(item_ids[predicted_indices])
 
     return len(predicted & target_ids) / len(target_ids)
 
 
-def build_final_top50(
-    ranked_indices,
-    history_indices,
-):
+def build_final_top50(ranked_indices, history_indices):
 
     result = []
 
@@ -221,10 +180,7 @@ def build_final_top50(
 
         if len(result) >= 50:
 
-            return np.asarray(
-                result[:50],
-                dtype=np.int64,
-            )
+            return np.asarray(result[:50], dtype=np.int64)
 
     for idx in ranked_indices:
 
@@ -240,10 +196,7 @@ def build_final_top50(
         if len(result) >= 50:
             break
 
-    return np.asarray(
-        result[:50],
-        dtype=np.int64,
-    )
+    return np.asarray(result[:50], dtype=np.int64)
 
 
 if torch.backends.mps.is_available():
@@ -270,10 +223,7 @@ train["_norm_query"] = [normalize_query(x) for x in train["search_query"]]
 
 train["_mc"] = [microcat_key(x) for x in train["item_microcat_id"]]
 
-print(
-    "Rows:",
-    len(train),
-)
+print("Rows:", len(train))
 
 ITEM_COLUMNS = [
     "item_id",
@@ -290,86 +240,44 @@ item_ids = items["item_id"].astype(str).to_numpy()
 
 item_locations = items["item_location_id"].to_numpy()
 
-item_microcats = np.asarray(
-    [microcat_key(x) for x in items["item_microcat_id"]],
-    dtype=object,
-)
+item_microcats = np.asarray([microcat_key(x) for x in items["item_microcat_id"]], dtype=object)
 
 item_id_to_index = {item_id: idx for idx, item_id in enumerate(item_ids)}
 
-print(
-    "Unique items:",
-    len(items),
-)
+print("Unique items:", len(items))
 
 print("\nЗагружаем embeddings...")
 
-item_embeddings = np.load(BGE_EMB_PATH).astype(
-    np.float32,
-    copy=False,
-)
+item_embeddings = np.load(BGE_EMB_PATH).astype(np.float32, copy=False)
 
-saved_ids = np.load(
-    BGE_IDS_PATH,
-    allow_pickle=True,
-)
+saved_ids = np.load(BGE_IDS_PATH, allow_pickle=True)
 
-assert np.array_equal(
-    saved_ids.astype(str),
-    item_ids,
-)
+assert np.array_equal(saved_ids.astype(str), item_ids)
 
 print("Embeddings:", item_embeddings.shape)
 
 print("\nСтроим warm-query universe...")
 
-query_item_counts = (
-    train.groupby(
-        [
-            "_norm_query",
-            "item_id",
-        ]
-    )
-    .size()
-    .reset_index(name="count")
-)
+query_item_counts = train.groupby(["_norm_query", "item_id"]).size().reset_index(name="count")
 
 unique_counts = query_item_counts.groupby("_norm_query")["item_id"].nunique()
 
 warm_queries = unique_counts[unique_counts >= 2].index.tolist()
 
-print(
-    "Warm queries:",
-    len(warm_queries),
-)
+print("Warm queries:", len(warm_queries))
 
 print("Selecting representative contexts...")
 
 context_counts = (
     train[train["_norm_query"].isin(warm_queries)]
     .groupby(
-        [
-            "_norm_query",
-            "search_location_id",
-            "search_infm_params_text",
-            "search_category",
-        ],
-        dropna=False,
+        ["_norm_query", "search_location_id", "search_infm_params_text", "search_category"], dropna=False
     )
     .size()
     .reset_index(name="context_count")
 )
 
-context_counts = context_counts.sort_values(
-    [
-        "_norm_query",
-        "context_count",
-    ],
-    ascending=[
-        True,
-        False,
-    ],
-)
+context_counts = context_counts.sort_values(["_norm_query", "context_count"], ascending=[True, False])
 
 context_map = context_counts.drop_duplicates("_norm_query").set_index("_norm_query")
 
@@ -403,10 +311,7 @@ for query in tqdm(warm_queries):
 
     unique_ids = list(item_count_map.keys())
 
-    ordered_ids = sorted(
-        unique_ids,
-        key=lambda item_id: stable_hash(query + "|" + item_id),
-    )
+    ordered_ids = sorted(unique_ids, key=lambda item_id: stable_hash(query + "|" + item_id))
 
     n_items = len(ordered_ids)
 
@@ -417,33 +322,18 @@ for query in tqdm(warm_queries):
     if not history_ids or not target_ids:
         continue
 
-    history_ids = sorted(
-        history_ids,
-        key=lambda item_id: (
-            -item_count_map[item_id],
-            item_id,
-        ),
-    )
+    history_ids = sorted(history_ids, key=lambda item_id: (-item_count_map[item_id], item_id))
 
-    history_indices = np.asarray(
-        [item_id_to_index[item_id] for item_id in history_ids],
-        dtype=np.int64,
-    )
+    history_indices = np.asarray([item_id_to_index[item_id] for item_id in history_ids], dtype=np.int64)
 
-    history_counts = np.asarray(
-        [item_count_map[item_id] for item_id in history_ids],
-        dtype=np.float32,
-    )
+    history_counts = np.asarray([item_count_map[item_id] for item_id in history_ids], dtype=np.float32)
 
     ctx = context_map.loc[query]
 
     records.append(
         {
             "norm_query": query,
-            "search_query": query_text_map.get(
-                query,
-                query,
-            ),
+            "search_query": query_text_map.get(query, query),
             "search_location_id": ctx["search_location_id"],
             "search_infm_params_text": ctx["search_infm_params_text"],
             "search_category": ctx["search_category"],
@@ -458,15 +348,9 @@ for query in tqdm(warm_queries):
 
 warm_df = pd.DataFrame(records)
 
-warm_df = warm_df.sample(
-    frac=1,
-    random_state=RANDOM_STATE,
-).reset_index(drop=True)
+warm_df = warm_df.sample(frac=1, random_state=RANDOM_STATE).reset_index(drop=True)
 
-print(
-    "Usable warm queries:",
-    len(warm_df),
-)
+print("Usable warm queries:", len(warm_df))
 
 assert len(warm_df) >= CONFIRM_END
 
@@ -477,24 +361,15 @@ N_TUNE = TUNE_END - TUNE_START
 N_CONFIRM = CONFIRM_END - CONFIRM_START
 
 print()
-print(
-    "TUNE warm range:",
-    f"{TUNE_START}:{TUNE_END}",
-)
+print("TUNE warm range:", f"{TUNE_START}:{TUNE_END}")
 
 print("TUNE warm queries:", N_TUNE)
 
-print(
-    "CONFIRM warm range:",
-    f"{CONFIRM_START}:{CONFIRM_END}",
-)
+print("CONFIRM warm range:", f"{CONFIRM_START}:{CONFIRM_END}")
 
 print("CONFIRM warm queries:", N_CONFIRM)
 
-print(
-    "Median history items:",
-    sample["n_history"].median(),
-)
+print("Median history items:", sample["n_history"].median())
 
 location_to_indices = {}
 
@@ -512,39 +387,19 @@ for idx, mc in enumerate(item_microcats):
 
 for mc in list(microcat_to_indices):
 
-    microcat_to_indices[mc] = np.asarray(
-        microcat_to_indices[mc],
-        dtype=np.int64,
-    )
+    microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
 
 print("\nBuilding geo prior...")
 
 geo_counts = (
-    train.groupby(
-        [
-            "search_location_id",
-            "item_location_id",
-        ],
-        dropna=False,
-    )
-    .size()
-    .reset_index(name="count")
+    train.groupby(["search_location_id", "item_location_id"], dropna=False).size().reset_index(name="count")
 )
 
 geo_counts["total"] = geo_counts.groupby("search_location_id")["count"].transform("sum")
 
 geo_counts["prob"] = geo_counts["count"] / geo_counts["total"]
 
-geo_counts = geo_counts.sort_values(
-    [
-        "search_location_id",
-        "count",
-    ],
-    ascending=[
-        True,
-        False,
-    ],
-)
+geo_counts = geo_counts.sort_values(["search_location_id", "count"], ascending=[True, False])
 
 geo_map = {}
 
@@ -557,69 +412,39 @@ for search_location, group in geo_counts.groupby("search_location_id"):
         if row.item_location_id == search_location:
             continue
 
-        values.append(
-            (
-                row.item_location_id,
-                float(row.prob),
-            )
-        )
+        values.append((row.item_location_id, float(row.prob)))
 
     geo_map[search_location] = values[:GEO_TOP_N]
 
 print("\nLoading BGE...")
 
-model = SentenceTransformer(
-    "BAAI/bge-m3",
-    device=DEVICE,
-)
+model = SentenceTransformer("BAAI/bge-m3", device=DEVICE)
 
 model.max_seq_length = 128
 
 query_texts = sample["search_query"].fillna("").astype(str).tolist()
 
 query_embeddings = model.encode(
-    query_texts,
-    batch_size=64,
-    normalize_embeddings=True,
-    show_progress_bar=True,
-    convert_to_numpy=True,
+    query_texts, batch_size=64, normalize_embeddings=True, show_progress_bar=True, convert_to_numpy=True
 ).astype(np.float32)
 
 print("\nGlobal BGE...")
 
 global_bge_top = []
 
-for start in tqdm(
-    range(
-        0,
-        len(sample),
-        20,
-    )
-):
+for start in tqdm(range(0, len(sample), 20)):
 
-    end = min(
-        start + 20,
-        len(sample),
-    )
+    end = min(start + 20, len(sample))
 
     scores = query_embeddings[start:end] @ item_embeddings.T
 
-    positions = np.argpartition(
-        scores,
-        -K_GLOBAL,
-        axis=1,
-    )[:, -K_GLOBAL:]
+    positions = np.argpartition(scores, -K_GLOBAL, axis=1)[:, -K_GLOBAL:]
 
     for row in range(end - start):
 
         idx = positions[row]
 
-        order = np.argsort(
-            scores[
-                row,
-                idx,
-            ]
-        )[::-1]
+        order = np.argsort(scores[row, idx])[::-1]
 
         global_bge_top.append(idx[order])
 
@@ -637,43 +462,21 @@ for i in tqdm(range(len(sample))):
 
     if exact_indices is None or len(exact_indices) == 0:
 
-        local_bge_top.append(
-            np.array(
-                [],
-                dtype=np.int64,
-            )
-        )
+        local_bge_top.append(np.array([], dtype=np.int64))
 
     else:
 
         scores = item_embeddings[exact_indices] @ query_embeddings[i]
 
-        local_bge_top.append(
-            top_k_indices(
-                scores,
-                exact_indices,
-                K_LOCAL_BGE,
-            )
-        )
+        local_bge_top.append(top_k_indices(scores, exact_indices, K_LOCAL_BGE))
 
-    alt_locations = [
-        location
-        for location, _ in geo_map.get(
-            search_location,
-            [],
-        )
-    ]
+    alt_locations = [location for location, _ in geo_map.get(search_location, [])]
 
     pools = [location_to_indices[location] for location in alt_locations if location in location_to_indices]
 
     if not pools:
 
-        alt_geo_bge_top.append(
-            np.array(
-                [],
-                dtype=np.int64,
-            )
-        )
+        alt_geo_bge_top.append(np.array([], dtype=np.int64))
 
     else:
 
@@ -681,20 +484,11 @@ for i in tqdm(range(len(sample))):
 
         scores = item_embeddings[alt_indices] @ query_embeddings[i]
 
-        alt_geo_bge_top.append(
-            top_k_indices(
-                scores,
-                alt_indices,
-                K_ALT_GEO_BGE,
-            )
-        )
+        alt_geo_bge_top.append(top_k_indices(scores, alt_indices, K_ALT_GEO_BGE))
 
 print("\nBM25...")
 
-retriever = bm25s.BM25.load(
-    str(BM25_DIR),
-    load_corpus=False,
-)
+retriever = bm25s.BM25.load(str(BM25_DIR), load_corpus=False)
 
 stemmer = Stemmer.Stemmer("russian")
 
@@ -704,16 +498,9 @@ bm25_query_text = (
     + sample["search_infm_params_text"].fillna("").astype(str)
 ).tolist()
 
-tokens = bm25s.tokenize(
-    bm25_query_text,
-    stopwords=None,
-    stemmer=stemmer,
-)
+tokens = bm25s.tokenize(bm25_query_text, stopwords=None, stemmer=stemmer)
 
-bm25_wide, _ = retriever.retrieve(
-    tokens,
-    k=K_BM25_WIDE,
-)
+bm25_wide, _ = retriever.retrieve(tokens, k=K_BM25_WIDE)
 
 global_bm25_top = bm25_wide[:, :K_GLOBAL]
 
@@ -727,13 +514,7 @@ for i in tqdm(range(len(sample))):
 
     search_location = sample.iloc[i]["search_location_id"]
 
-    alt_set = {
-        location
-        for location, _ in geo_map.get(
-            search_location,
-            [],
-        )
-    }
+    alt_set = {location for location, _ in geo_map.get(search_location, [])}
 
     exact = []
 
@@ -757,19 +538,9 @@ for i in tqdm(range(len(sample))):
 
             break
 
-    local_bm25_top.append(
-        np.asarray(
-            exact,
-            dtype=np.int64,
-        )
-    )
+    local_bm25_top.append(np.asarray(exact, dtype=np.int64))
 
-    alt_geo_bm25_top.append(
-        np.asarray(
-            alt,
-            dtype=np.int64,
-        )
-    )
+    alt_geo_bm25_top.append(np.asarray(alt, dtype=np.int64))
 
 print("\nMicrocat classifier...")
 
@@ -781,16 +552,9 @@ X = mc_vectorizer.transform(query_texts)
 
 decision = mc_classifier.decision_function(X)
 
-classes = np.asarray(
-    [microcat_key(x) for x in mc_classifier.classes_],
-    dtype=object,
-)
+classes = np.asarray([microcat_key(x) for x in mc_classifier.classes_], dtype=object)
 
-positions = np.argpartition(
-    decision,
-    -TOP_MICROCATS,
-    axis=1,
-)[:, -TOP_MICROCATS:]
+positions = np.argpartition(decision, -TOP_MICROCATS, axis=1)[:, -TOP_MICROCATS:]
 
 predicted_microcats = []
 
@@ -798,12 +562,7 @@ for i in range(len(sample)):
 
     pos = positions[i]
 
-    order = np.argsort(
-        decision[
-            i,
-            pos,
-        ]
-    )[::-1]
+    order = np.argsort(decision[i, pos])[::-1]
 
     predicted_microcats.append(classes[pos[order]].tolist())
 
@@ -855,12 +614,7 @@ for i in tqdm(range(len(sample))):
 
     if not pools:
 
-        microcat_bge_top.append(
-            np.array(
-                [],
-                dtype=np.int64,
-            )
-        )
+        microcat_bge_top.append(np.array([], dtype=np.int64))
 
     else:
 
@@ -868,22 +622,13 @@ for i in tqdm(range(len(sample))):
 
         scores = item_embeddings[indices] @ query_embeddings[i]
 
-        microcat_bge_top.append(
-            top_k_indices(
-                scores,
-                indices,
-                K_MICROCAT,
-            )
-        )
+        microcat_bge_top.append(top_k_indices(scores, indices, K_MICROCAT))
 
     joint_pools = [microcat_to_indices[mc] for mc in classifier_mcs if mc in microcat_to_indices]
 
     if not joint_pools:
 
-        empty = np.array(
-            [],
-            dtype=np.int64,
-        )
+        empty = np.array([], dtype=np.int64)
 
         exact_mc_bge_top.append(empty)
 
@@ -903,35 +648,15 @@ for i in tqdm(range(len(sample))):
 
         scores = item_embeddings[exact_indices] @ query_embeddings[i]
 
-        exact_mc_bge_top.append(
-            top_k_indices(
-                scores,
-                exact_indices,
-                K_JOINT_BGE,
-            )
-        )
+        exact_mc_bge_top.append(top_k_indices(scores, exact_indices, K_JOINT_BGE))
 
     else:
 
-        exact_mc_bge_top.append(
-            np.array(
-                [],
-                dtype=np.int64,
-            )
-        )
+        exact_mc_bge_top.append(np.array([], dtype=np.int64))
 
-    alt_set = {
-        location
-        for location, _ in geo_map.get(
-            search_location,
-            [],
-        )
-    }
+    alt_set = {location for location, _ in geo_map.get(search_location, [])}
 
-    alt_mask = np.isin(
-        item_locations[joint_indices],
-        list(alt_set),
-    )
+    alt_mask = np.isin(item_locations[joint_indices], list(alt_set))
 
     alt_indices = joint_indices[alt_mask]
 
@@ -939,22 +664,11 @@ for i in tqdm(range(len(sample))):
 
         scores = item_embeddings[alt_indices] @ query_embeddings[i]
 
-        alt_mc_bge_top.append(
-            top_k_indices(
-                scores,
-                alt_indices,
-                K_JOINT_BGE,
-            )
-        )
+        alt_mc_bge_top.append(top_k_indices(scores, alt_indices, K_JOINT_BGE))
 
     else:
 
-        alt_mc_bge_top.append(
-            np.array(
-                [],
-                dtype=np.int64,
-            )
-        )
+        alt_mc_bge_top.append(np.array([], dtype=np.int64))
 
 print("\nHistory prototype retrieval...")
 
@@ -968,11 +682,7 @@ for i in tqdm(range(len(sample))):
 
     embeddings = item_embeddings[indices]
 
-    vector = np.average(
-        embeddings,
-        axis=0,
-        weights=counts,
-    ).astype(np.float32)
+    vector = np.average(embeddings, axis=0, weights=counts).astype(np.float32)
 
     vector = normalize_vector(vector).astype(np.float32)
 
@@ -982,43 +692,21 @@ prototype_vectors = np.vstack(prototype_vectors).astype(np.float32)
 
 prototype_top = []
 
-for start in tqdm(
-    range(
-        0,
-        len(sample),
-        20,
-    ),
-    desc="Prototype retrieval",
-):
+for start in tqdm(range(0, len(sample), 20), desc="Prototype retrieval"):
 
-    end = min(
-        start + 20,
-        len(sample),
-    )
+    end = min(start + 20, len(sample))
 
     scores = prototype_vectors[start:end] @ item_embeddings.T
 
-    k = min(
-        PROTO_TOP_K,
-        len(items),
-    )
+    k = min(PROTO_TOP_K, len(items))
 
-    positions = np.argpartition(
-        scores,
-        -k,
-        axis=1,
-    )[:, -k:]
+    positions = np.argpartition(scores, -k, axis=1)[:, -k:]
 
     for row in range(end - start):
 
         idx = positions[row]
 
-        order = np.argsort(
-            scores[
-                row,
-                idx,
-            ]
-        )[::-1]
+        order = np.argsort(scores[row, idx])[::-1]
 
         prototype_top.append(idx[order].astype(np.int64))
 
@@ -1030,89 +718,40 @@ for i in tqdm(range(len(sample))):
 
     scores = {}
 
-    add_rrf(
-        scores,
-        global_bm25_top[i],
-        1.0,
-    )
+    add_rrf(scores, global_bm25_top[i], 1.0)
 
-    add_rrf(
-        scores,
-        global_bge_top[i],
-        BGE_GLOBAL_WEIGHT,
-    )
+    add_rrf(scores, global_bge_top[i], BGE_GLOBAL_WEIGHT)
 
-    add_rrf(
-        scores,
-        local_bge_top[i],
-        LOCAL_BGE_WEIGHT,
-    )
+    add_rrf(scores, local_bge_top[i], LOCAL_BGE_WEIGHT)
 
-    add_rrf(
-        scores,
-        local_bm25_top[i],
-        LOCAL_BM25_WEIGHT,
-    )
+    add_rrf(scores, local_bm25_top[i], LOCAL_BM25_WEIGHT)
 
-    add_rrf(
-        scores,
-        alt_geo_bge_top[i],
-        ALT_GEO_BGE_WEIGHT,
-    )
+    add_rrf(scores, alt_geo_bge_top[i], ALT_GEO_BGE_WEIGHT)
 
-    add_rrf(
-        scores,
-        alt_geo_bm25_top[i],
-        ALT_GEO_BM25_WEIGHT,
-    )
+    add_rrf(scores, alt_geo_bm25_top[i], ALT_GEO_BM25_WEIGHT)
 
-    add_rrf(
-        scores,
-        microcat_bge_top[i],
-        MICROCAT_SOURCE_WEIGHT,
-    )
+    add_rrf(scores, microcat_bge_top[i], MICROCAT_SOURCE_WEIGHT)
 
-    add_rrf(
-        scores,
-        exact_mc_bge_top[i],
-        EXACT_MC_BGE_WEIGHT,
-    )
+    add_rrf(scores, exact_mc_bge_top[i], EXACT_MC_BGE_WEIGHT)
 
-    add_rrf(
-        scores,
-        alt_mc_bge_top[i],
-        ALT_MC_BGE_WEIGHT,
-    )
+    add_rrf(scores, alt_mc_bge_top[i], ALT_MC_BGE_WEIGHT)
 
     raw_answer4_scores.append(scores)
 
 
-def rank_query(
-    i,
-    prototype_weight,
-):
+def rank_query(i, prototype_weight):
 
     scores = dict(raw_answer4_scores[i])
 
     if prototype_weight > 0:
 
-        add_rrf(
-            scores,
-            prototype_top[i],
-            prototype_weight,
-        )
+        add_rrf(scores, prototype_top[i], prototype_weight)
 
     search_location = sample.iloc[i]["search_location_id"]
 
     selected_mc_set = combined_mc_sets[i]
 
-    geo_prob = {
-        location: probability
-        for (location, probability) in geo_map.get(
-            search_location,
-            [],
-        )
-    }
+    geo_prob = {location: probability for (location, probability) in geo_map.get(search_location, [])}
 
     for idx in scores:
 
@@ -1132,26 +771,14 @@ def rank_query(
 
             scores[idx] += GEO_WEIGHT * probability
 
-    ranked = sorted(
-        scores,
-        key=scores.get,
-        reverse=True,
-    )
+    ranked = sorted(scores, key=scores.get, reverse=True)
 
-    final_top = build_final_top50(
-        ranked,
-        sample.iloc[i]["history_indices"],
-    )
+    final_top = build_final_top50(ranked, sample.iloc[i]["history_indices"])
 
     return final_top
 
 
-def evaluate(
-    start,
-    end,
-    prototype_weight,
-    baseline=None,
-):
+def evaluate(start, end, prototype_weight, baseline=None):
 
     recalls = []
 
@@ -1165,21 +792,11 @@ def evaluate(
 
     changed_items = 0
 
-    for i in range(
-        start,
-        end,
-    ):
+    for i in range(start, end):
 
-        top = rank_query(
-            i,
-            prototype_weight,
-        )
+        top = rank_query(i, prototype_weight)
 
-        recall = recall_at_50(
-            top,
-            sample.iloc[i]["target_ids"],
-            item_ids,
-        )
+        recall = recall_at_50(top, sample.iloc[i]["target_ids"], item_ids)
 
         recalls.append(recall)
 
@@ -1207,10 +824,7 @@ def evaluate(
 
                 changed_queries += 1
 
-    recalls = np.asarray(
-        recalls,
-        dtype=np.float32,
-    )
+    recalls = np.asarray(recalls, dtype=np.float32)
 
     return {
         "mean": float(recalls.mean()),
@@ -1228,17 +842,9 @@ print("=" * 110)
 print("FULL ANSWER4 — WARM BASELINE")
 print("=" * 110)
 
-tune_base = evaluate(
-    0,
-    N_TUNE,
-    0.0,
-)
+tune_base = evaluate(0, N_TUNE, 0.0)
 
-confirm_base = evaluate(
-    N_TUNE,
-    N_TUNE + N_CONFIRM,
-    0.0,
-)
+confirm_base = evaluate(N_TUNE, N_TUNE + N_CONFIRM, 0.0)
 
 print("TUNE answer4:", f"{tune_base['mean'] * 100:.3f}%")
 
@@ -1253,12 +859,7 @@ rows = []
 
 for weight in PROTO_WEIGHTS:
 
-    result = evaluate(
-        0,
-        N_TUNE,
-        weight,
-        baseline=tune_base,
-    )
+    result = evaluate(0, N_TUNE, weight, baseline=tune_base)
 
     delta = (result["mean"] - tune_base["mean"]) * 100
 
@@ -1288,20 +889,7 @@ for weight in PROTO_WEIGHTS:
 
 result_df = (
     pd.DataFrame(rows)
-    .sort_values(
-        [
-            "recall",
-            "improved",
-            "worse",
-            "avg_changed",
-        ],
-        ascending=[
-            False,
-            False,
-            True,
-            True,
-        ],
-    )
+    .sort_values(["recall", "improved", "worse", "avg_changed"], ascending=[False, False, True, True])
     .reset_index(drop=True)
 )
 
@@ -1325,12 +913,7 @@ best = result_df.iloc[0]
 
 BEST_WEIGHT = float(best["weight"])
 
-confirm = evaluate(
-    N_TUNE,
-    N_TUNE + N_CONFIRM,
-    BEST_WEIGHT,
-    baseline=confirm_base,
-)
+confirm = evaluate(N_TUNE, N_TUNE + N_CONFIRM, BEST_WEIGHT, baseline=confirm_base)
 
 confirm_delta = (confirm["mean"] - confirm_base["mean"]) * 100
 
@@ -1340,10 +923,7 @@ proto_hit_100 = 0
 
 proto_hit_500 = 0
 
-for i in range(
-    N_TUNE,
-    N_TUNE + N_CONFIRM,
-):
+for i in range(N_TUNE, N_TUNE + N_CONFIRM):
 
     targets = sample.iloc[i]["target_ids"]
 

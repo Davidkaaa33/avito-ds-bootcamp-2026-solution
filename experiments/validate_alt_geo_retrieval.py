@@ -59,23 +59,9 @@ GEO_WEIGHT = 0.060
 K_ALT_GEO_BGE = 500
 K_ALT_GEO_BM25 = 500
 
-ALT_BGE_WEIGHTS = [
-    0.00,
-    0.10,
-    0.25,
-    0.50,
-    0.75,
-    1.00,
-]
+ALT_BGE_WEIGHTS = [0.00, 0.10, 0.25, 0.50, 0.75, 1.00]
 
-ALT_BM25_WEIGHTS = [
-    0.00,
-    0.25,
-    0.50,
-    0.75,
-    1.00,
-    1.25,
-]
+ALT_BM25_WEIGHTS = [0.00, 0.25, 0.50, 0.75, 1.00, 1.25]
 
 RANDOM_STATE = 42
 
@@ -100,45 +86,25 @@ def microcat_key(value):
     return str(value)
 
 
-def add_rrf(
-    scores,
-    indices,
-    weight,
-):
+def add_rrf(scores, indices, weight):
 
     if weight == 0:
         return
 
-    for rank, idx in enumerate(
-        indices,
-        start=1,
-    ):
+    for rank, idx in enumerate(indices, start=1):
 
         idx = int(idx)
 
-        scores[idx] = scores.get(
-            idx,
-            0.0,
-        ) + weight / (RRF_K + rank)
+        scores[idx] = scores.get(idx, 0.0) + weight / (RRF_K + rank)
 
 
-def top_k_indices(
-    scores,
-    indices,
-    k,
-):
+def top_k_indices(scores, indices, k):
 
     if len(indices) == 0:
 
-        return np.array(
-            [],
-            dtype=np.int64,
-        )
+        return np.array([], dtype=np.int64)
 
-    k = min(
-        k,
-        len(indices),
-    )
+    k = min(k, len(indices))
 
     if k == len(indices):
 
@@ -146,21 +112,14 @@ def top_k_indices(
 
         return indices[order]
 
-    pos = np.argpartition(
-        scores,
-        -k,
-    )[-k:]
+    pos = np.argpartition(scores, -k)[-k:]
 
     order = np.argsort(scores[pos])[::-1]
 
     return indices[pos[order]]
 
 
-def recall_at_50(
-    top_indices,
-    relevant,
-    item_ids,
-):
+def recall_at_50(top_indices, relevant, item_ids):
 
     predicted = set(item_ids[top_indices])
 
@@ -184,25 +143,13 @@ train = pd.read_parquet(TRAIN_PATH)
 
 train["item_id"] = train["item_id"].astype(str)
 
-print(
-    "Rows:",
-    len(train),
-)
+print("Rows:", len(train))
 
 print("\nСтроим query-disjoint split...")
 
-splitter = GroupShuffleSplit(
-    n_splits=1,
-    test_size=0.10,
-    random_state=RANDOM_STATE,
-)
+splitter = GroupShuffleSplit(n_splits=1, test_size=0.10, random_state=RANDOM_STATE)
 
-train_idx, val_idx = next(
-    splitter.split(
-        train,
-        groups=train["search_query"],
-    )
-)
+train_idx, val_idx = next(splitter.split(train, groups=train["search_query"]))
 
 supervision = train.iloc[train_idx].copy()
 
@@ -210,15 +157,9 @@ holdout = train.iloc[val_idx].copy()
 
 assert not (set(supervision["search_query"]) & set(holdout["search_query"]))
 
-print(
-    "Supervision rows:",
-    len(supervision),
-)
+print("Supervision rows:", len(supervision))
 
-print(
-    "Holdout rows:",
-    len(holdout),
-)
+print("Holdout rows:", len(holdout))
 
 QUERY_COLUMNS = [
     "search_query",
@@ -228,33 +169,17 @@ QUERY_COLUMNS = [
     "search_category",
 ]
 
-val_groups = (
-    holdout.groupby(
-        QUERY_COLUMNS,
-        dropna=False,
-    )["item_id"]
-    .agg(set)
-    .reset_index(name="relevant_ids")
-)
+val_groups = holdout.groupby(QUERY_COLUMNS, dropna=False)["item_id"].agg(set).reset_index(name="relevant_ids")
 
-shuffled = val_groups.sample(
-    frac=1,
-    random_state=123,
-).reset_index(drop=True)
+shuffled = val_groups.sample(frac=1, random_state=123).reset_index(drop=True)
 
 assert len(shuffled) >= FRESH_END
 
 sample = shuffled.iloc[FRESH_START:FRESH_END].copy().reset_index(drop=True)
 
-print(
-    "Fresh validation range:",
-    f"{FRESH_START}:{FRESH_END}",
-)
+print("Fresh validation range:", f"{FRESH_START}:{FRESH_END}")
 
-print(
-    "Fresh validation groups:",
-    len(sample),
-)
+print("Fresh validation groups:", len(sample))
 
 ITEM_COLUMNS = [
     "item_id",
@@ -271,31 +196,19 @@ item_ids = items["item_id"].astype(str).to_numpy()
 
 item_locations = items["item_location_id"].to_numpy()
 
-item_microcats = np.asarray(
-    [microcat_key(x) for x in items["item_microcat_id"]],
-    dtype=object,
-)
+item_microcats = np.asarray([microcat_key(x) for x in items["item_microcat_id"]], dtype=object)
 
-print(
-    "Items:",
-    len(items),
-)
+print("Items:", len(items))
 
 print("\nЗагружаем BGE embeddings...")
 
 item_embeddings = np.load(BGE_EMB_PATH)
 
-saved_ids = np.load(
-    BGE_IDS_PATH,
-    allow_pickle=True,
-)
+saved_ids = np.load(BGE_IDS_PATH, allow_pickle=True)
 
 assert len(item_embeddings) == len(items)
 
-assert np.array_equal(
-    saved_ids.astype(str),
-    item_ids,
-)
+assert np.array_equal(saved_ids.astype(str), item_ids)
 
 print("Embeddings:", item_embeddings.shape)
 
@@ -319,21 +232,12 @@ for idx, mc in enumerate(item_microcats):
 
 for mc in list(microcat_to_indices):
 
-    microcat_to_indices[mc] = np.asarray(
-        microcat_to_indices[mc],
-        dtype=np.int64,
-    )
+    microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
 
 print("\nСтроим answer2 geo prior...")
 
 geo_counts = (
-    supervision.groupby(
-        [
-            "search_location_id",
-            "item_location_id",
-        ],
-        dropna=False,
-    )
+    supervision.groupby(["search_location_id", "item_location_id"], dropna=False)
     .size()
     .reset_index(name="count")
 )
@@ -342,16 +246,7 @@ geo_counts["total"] = geo_counts.groupby("search_location_id")["count"].transfor
 
 geo_counts["prob"] = geo_counts["count"] / geo_counts["total"]
 
-geo_counts = geo_counts.sort_values(
-    [
-        "search_location_id",
-        "count",
-    ],
-    ascending=[
-        True,
-        False,
-    ],
-)
+geo_counts = geo_counts.sort_values(["search_location_id", "count"], ascending=[True, False])
 
 geo_map = {}
 
@@ -364,21 +259,13 @@ for search_location, group in geo_counts.groupby("search_location_id"):
         if row.item_location_id == search_location:
             continue
 
-        alternatives.append(
-            (
-                row.item_location_id,
-                float(row.prob),
-            )
-        )
+        alternatives.append((row.item_location_id, float(row.prob)))
 
     geo_map[search_location] = alternatives[:GEO_TOP_N]
 
 print("\nЗагружаем BGE-M3...")
 
-model = SentenceTransformer(
-    "BAAI/bge-m3",
-    device=DEVICE,
-)
+model = SentenceTransformer("BAAI/bge-m3", device=DEVICE)
 
 model.max_seq_length = 128
 
@@ -387,48 +274,26 @@ query_texts = sample["search_query"].fillna("").astype(str).tolist()
 print("\nКодируем queries...")
 
 query_embeddings = model.encode(
-    query_texts,
-    batch_size=64,
-    normalize_embeddings=True,
-    show_progress_bar=True,
-    convert_to_numpy=True,
+    query_texts, batch_size=64, normalize_embeddings=True, show_progress_bar=True, convert_to_numpy=True
 ).astype(np.float32)
 
 print("\nGlobal BGE top-500...")
 
 global_bge_top = []
 
-for start in tqdm(
-    range(
-        0,
-        len(sample),
-        20,
-    )
-):
+for start in tqdm(range(0, len(sample), 20)):
 
-    end = min(
-        start + 20,
-        len(sample),
-    )
+    end = min(start + 20, len(sample))
 
     scores = query_embeddings[start:end] @ item_embeddings.T
 
-    pos = np.argpartition(
-        scores,
-        -K_GLOBAL,
-        axis=1,
-    )[:, -K_GLOBAL:]
+    pos = np.argpartition(scores, -K_GLOBAL, axis=1)[:, -K_GLOBAL:]
 
     for row in range(end - start):
 
         idx = pos[row]
 
-        order = np.argsort(
-            scores[
-                row,
-                idx,
-            ]
-        )[::-1]
+        order = np.argsort(scores[row, idx])[::-1]
 
         global_bge_top.append(idx[order])
 
@@ -444,24 +309,13 @@ for i in tqdm(range(len(sample))):
 
     if indices is None or len(indices) == 0:
 
-        local_bge_top.append(
-            np.array(
-                [],
-                dtype=np.int64,
-            )
-        )
+        local_bge_top.append(np.array([], dtype=np.int64))
 
         continue
 
     scores = item_embeddings[indices] @ query_embeddings[i]
 
-    local_bge_top.append(
-        top_k_indices(
-            scores,
-            indices,
-            K_LOCAL_BGE,
-        )
-    )
+    local_bge_top.append(top_k_indices(scores, indices, K_LOCAL_BGE))
 
 print("\nAlternative-GEO BGE...")
 
@@ -471,24 +325,13 @@ for i in tqdm(range(len(sample))):
 
     search_location = sample.iloc[i]["search_location_id"]
 
-    alt_locations = [
-        loc
-        for loc, _ in geo_map.get(
-            search_location,
-            [],
-        )
-    ]
+    alt_locations = [loc for loc, _ in geo_map.get(search_location, [])]
 
     pools = [location_to_indices[loc] for loc in alt_locations if loc in location_to_indices]
 
     if not pools:
 
-        alt_geo_bge_top.append(
-            np.array(
-                [],
-                dtype=np.int64,
-            )
-        )
+        alt_geo_bge_top.append(np.array([], dtype=np.int64))
 
         continue
 
@@ -496,20 +339,11 @@ for i in tqdm(range(len(sample))):
 
     alt_scores = item_embeddings[alt_indices] @ query_embeddings[i]
 
-    alt_geo_bge_top.append(
-        top_k_indices(
-            alt_scores,
-            alt_indices,
-            K_ALT_GEO_BGE,
-        )
-    )
+    alt_geo_bge_top.append(top_k_indices(alt_scores, alt_indices, K_ALT_GEO_BGE))
 
 print("\nЗагружаем BM25...")
 
-retriever = bm25s.BM25.load(
-    str(BM25_DIR),
-    load_corpus=False,
-)
+retriever = bm25s.BM25.load(str(BM25_DIR), load_corpus=False)
 
 stemmer = Stemmer.Stemmer("russian")
 
@@ -519,18 +353,11 @@ bm25_query_texts = (
     + sample["search_infm_params_text"].fillna("").astype(str)
 ).tolist()
 
-tokens = bm25s.tokenize(
-    bm25_query_texts,
-    stopwords=None,
-    stemmer=stemmer,
-)
+tokens = bm25s.tokenize(bm25_query_texts, stopwords=None, stemmer=stemmer)
 
 print("BM25 top-10000...")
 
-bm25_wide, _ = retriever.retrieve(
-    tokens,
-    k=K_BM25_WIDE,
-)
+bm25_wide, _ = retriever.retrieve(tokens, k=K_BM25_WIDE)
 
 global_bm25_top = bm25_wide[:, :K_GLOBAL]
 
@@ -544,13 +371,7 @@ for i in tqdm(range(len(sample))):
 
     search_location = sample.iloc[i]["search_location_id"]
 
-    alt_location_set = set(
-        loc
-        for loc, _ in geo_map.get(
-            search_location,
-            [],
-        )
-    )
+    alt_location_set = set(loc for loc, _ in geo_map.get(search_location, []))
 
     exact_candidates = []
 
@@ -573,19 +394,9 @@ for i in tqdm(range(len(sample))):
         if len(exact_candidates) >= K_LOCAL_BM25 and len(alt_candidates) >= K_ALT_GEO_BM25:
             break
 
-    local_bm25_top.append(
-        np.asarray(
-            exact_candidates,
-            dtype=np.int64,
-        )
-    )
+    local_bm25_top.append(np.asarray(exact_candidates, dtype=np.int64))
 
-    alt_geo_bm25_top.append(
-        np.asarray(
-            alt_candidates,
-            dtype=np.int64,
-        )
-    )
+    alt_geo_bm25_top.append(np.asarray(alt_candidates, dtype=np.int64))
 
 print("\nMicrocat classifier...")
 
@@ -597,21 +408,11 @@ X = vectorizer.transform(query_texts)
 
 decision = classifier.decision_function(X)
 
-classes = np.asarray(
-    [microcat_key(x) for x in classifier.classes_],
-    dtype=object,
-)
+classes = np.asarray([microcat_key(x) for x in classifier.classes_], dtype=object)
 
-k_mc = min(
-    TOP_MICROCATS,
-    len(classes),
-)
+k_mc = min(TOP_MICROCATS, len(classes))
 
-positions = np.argpartition(
-    decision,
-    -k_mc,
-    axis=1,
-)[:, -k_mc:]
+positions = np.argpartition(decision, -k_mc, axis=1)[:, -k_mc:]
 
 predicted_microcats = []
 
@@ -619,12 +420,7 @@ for i in range(len(sample)):
 
     pos = positions[i]
 
-    order = np.argsort(
-        decision[
-            i,
-            pos,
-        ]
-    )[::-1]
+    order = np.argsort(decision[i, pos])[::-1]
 
     predicted_microcats.append(classes[pos[order]].tolist())
 
@@ -644,12 +440,7 @@ for i in tqdm(range(len(sample))):
 
     if not pools:
 
-        microcat_bge_top.append(
-            np.array(
-                [],
-                dtype=np.int64,
-            )
-        )
+        microcat_bge_top.append(np.array([], dtype=np.int64))
 
         continue
 
@@ -657,13 +448,7 @@ for i in tqdm(range(len(sample))):
 
     scores = item_embeddings[indices] @ query_embeddings[i]
 
-    microcat_bge_top.append(
-        top_k_indices(
-            scores,
-            indices,
-            K_MICROCAT,
-        )
-    )
+    microcat_bge_top.append(top_k_indices(scores, indices, K_MICROCAT))
 
 print("\nСтроим answer2 baseline...")
 
@@ -677,47 +462,21 @@ for i in tqdm(range(len(sample))):
 
     scores = {}
 
-    add_rrf(
-        scores,
-        global_bm25_top[i],
-        1.0,
-    )
+    add_rrf(scores, global_bm25_top[i], 1.0)
 
-    add_rrf(
-        scores,
-        global_bge_top[i],
-        BGE_GLOBAL_WEIGHT,
-    )
+    add_rrf(scores, global_bge_top[i], BGE_GLOBAL_WEIGHT)
 
-    add_rrf(
-        scores,
-        local_bge_top[i],
-        LOCAL_BGE_WEIGHT,
-    )
+    add_rrf(scores, local_bge_top[i], LOCAL_BGE_WEIGHT)
 
-    add_rrf(
-        scores,
-        local_bm25_top[i],
-        LOCAL_BM25_WEIGHT,
-    )
+    add_rrf(scores, local_bm25_top[i], LOCAL_BM25_WEIGHT)
 
-    add_rrf(
-        scores,
-        microcat_bge_top[i],
-        MICROCAT_SOURCE_WEIGHT,
-    )
+    add_rrf(scores, microcat_bge_top[i], MICROCAT_SOURCE_WEIGHT)
 
     search_location = sample.iloc[i]["search_location_id"]
 
     selected_microcats = microcat_sets[i]
 
-    geo_prob = {
-        loc: prob
-        for loc, prob in geo_map.get(
-            search_location,
-            [],
-        )
-    }
+    geo_prob = {loc: prob for loc, prob in geo_map.get(search_location, [])}
 
     for idx in scores:
 
@@ -737,19 +496,11 @@ for i in tqdm(range(len(sample))):
 
             scores[idx] += GEO_WEIGHT * probability
 
-    ranked = sorted(
-        scores,
-        key=scores.get,
-        reverse=True,
-    )[:50]
+    ranked = sorted(scores, key=scores.get, reverse=True)[:50]
 
     relevant = sample.iloc[i]["relevant_ids"]
 
-    recall = recall_at_50(
-        ranked,
-        relevant,
-        item_ids,
-    )
+    recall = recall_at_50(ranked, relevant, item_ids)
 
     answer2_scores.append(scores)
 
@@ -798,31 +549,15 @@ for bge_weight in ALT_BGE_WEIGHTS:
 
             scores = dict(answer2_scores[i])
 
-            add_rrf(
-                scores,
-                alt_geo_bge_top[i],
-                bge_weight,
-            )
+            add_rrf(scores, alt_geo_bge_top[i], bge_weight)
 
-            add_rrf(
-                scores,
-                alt_geo_bm25_top[i],
-                bm25_weight,
-            )
+            add_rrf(scores, alt_geo_bm25_top[i], bm25_weight)
 
-            ranked = sorted(
-                scores,
-                key=scores.get,
-                reverse=True,
-            )[:50]
+            ranked = sorted(scores, key=scores.get, reverse=True)[:50]
 
             relevant = sample.iloc[i]["relevant_ids"]
 
-            recall = recall_at_50(
-                ranked,
-                relevant,
-                item_ids,
-            )
+            recall = recall_at_50(ranked, relevant, item_ids)
 
             recalls.append(recall)
 
@@ -876,18 +611,7 @@ for bge_weight in ALT_BGE_WEIGHTS:
 
 result_df = (
     pd.DataFrame(results)
-    .sort_values(
-        [
-            "recall",
-            "improved",
-            "worse",
-        ],
-        ascending=[
-            False,
-            False,
-            True,
-        ],
-    )
+    .sort_values(["recall", "improved", "worse"], ascending=[False, False, True])
     .reset_index(drop=True)
 )
 
@@ -916,10 +640,7 @@ print("SUMMARY")
 
 print("=" * 90)
 
-print(
-    "Fresh sample:",
-    f"{FRESH_START}:{FRESH_END}",
-)
+print("Fresh sample:", f"{FRESH_START}:{FRESH_END}")
 
 print("Answer2 baseline:", f"{answer2_mean * 100:.3f}%")
 
