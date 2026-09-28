@@ -97,7 +97,10 @@ def sorted_top_k(scores, indices, k):
     positions = np.argpartition(scores, -k)[-k:]
     order = np.argsort(scores[positions])[::-1]
     return indices[positions[order]]
-print("Device:", DEVICE)\n\n\n# Сначала проверяю все подготовленные артефакты. Лучше упасть здесь, чем через пару минут retrieval с непонятной ошибкой.
+print("Device:", DEVICE)
+
+
+# Сначала проверяю все подготовленные артефакты. Лучше упасть здесь, чем через пару минут retrieval с непонятной ошибкой.
 required_paths = [
     TRAIN_PATH,
     QUERIES_PATH,
@@ -113,7 +116,10 @@ required_paths = [
 for path in required_paths:
     if not path.exists():
         raise FileNotFoundError(f"Не найден required asset: " f"{path}")
-\n\n# Загружаю benchmark и сразу фиксирую порядок item_id — дальше embeddings и индексы должны идти ровно в этом же порядке.\nprint("\\nЗагружаем benchmark queries...")
+
+
+# Загружаю benchmark и сразу фиксирую порядок item_id — дальше embeddings и индексы должны идти ровно в этом же порядке.
+print("\nЗагружаем benchmark queries...")
 queries = pd.read_parquet(QUERIES_PATH).reset_index(drop=True)
 print("Benchmark queries:", queries.shape)
 print("\nЗагружаем benchmark items...")
@@ -123,7 +129,10 @@ item_ids = items["item_id"].astype(str).to_numpy()
 item_locations = items["item_location_id"].to_numpy()
 item_microcats = np.asarray([microcat_key(x) for x in items["item_microcat_id"]], dtype=object)
 benchmark_item_set = set(item_ids.tolist())
-\n\n# Семантическая часть: готовые item embeddings + отдельно кодируем все benchmark queries через BGE-M3.\nprint("\\nЗагружаем benchmark BGE embeddings...")
+
+
+# Семантическая часть: готовые item embeddings + отдельно кодируем все benchmark queries через BGE-M3.
+print("\nЗагружаем benchmark BGE embeddings...")
 item_embeddings = np.load(BGE_EMB_PATH)
 saved_item_ids = np.load(BGE_IDS_PATH, allow_pickle=True)
 assert len(item_embeddings) == len(items)
@@ -139,7 +148,10 @@ print("\nКодируем benchmark queries...")
 query_embeddings = model.encode(
     query_texts, batch_size=64, normalize_embeddings=True, show_progress_bar=True, convert_to_numpy=True
 ).astype(np.float32)
-\n\n# Сначала широкий semantic retrieval по всему корпусу. Это даёт хороший recall, но без учёта географии.\nprint("\\nGlobal BGE top-500...")
+
+
+# Сначала широкий semantic retrieval по всему корпусу. Это даёт хороший recall, но без учёта географии.
+print("\nGlobal BGE top-500...")
 global_bge_top = []
 for start in tqdm(range(0, len(queries), QUERY_BLOCK_SIZE)):
     end = min(start + QUERY_BLOCK_SIZE, len(queries))
@@ -150,7 +162,10 @@ for start in tqdm(range(0, len(queries), QUERY_BLOCK_SIZE)):
         idx = positions[row]
         order = np.argsort(scores[row, idx])[::-1]
         global_bge_top.append(idx[order])
-\n\n# Для локальных каналов заранее собираю индексы items по location, чтобы потом не фильтровать весь корпус каждый раз.\nprint("\\nСтроим location index...")
+
+
+# Для локальных каналов заранее собираю индексы items по location, чтобы потом не фильтровать весь корпус каждый раз.
+print("\nСтроим location index...")
 location_to_indices = {}
 for location, group in items.groupby("item_location_id"):
     location_to_indices[location] = group.index.to_numpy(dtype=np.int64)
@@ -164,7 +179,10 @@ for i in tqdm(range(len(queries))):
         continue
     local_scores = item_embeddings[local_indices] @ query_embeddings[i]
     local_bge_top.append(sorted_top_k(local_scores, local_indices, K_LOCAL_BGE))
-\n\n# Лексический канал оставляю отдельно от BGE: на коротких сервисных запросах точные совпадения слов всё ещё очень полезны.\nprint("\\nЗагружаем benchmark BM25...")
+
+
+# Лексический канал оставляю отдельно от BGE: на коротких сервисных запросах точные совпадения слов всё ещё очень полезны.
+print("\nЗагружаем benchmark BM25...")
 retriever = bm25s.BM25.load(str(BM25_DIR), load_corpus=False)
 stemmer = Stemmer.Stemmer("russian")
 bm25_query_texts = (
@@ -188,7 +206,10 @@ for i in tqdm(range(len(queries))):
             if len(candidates) >= K_LOCAL_BM25:
                 break
     local_bm25_top.append(np.asarray(candidates, dtype=np.int64))
-\n\n# Microcat нужен как дополнительное сужение темы запроса. Это особенно помогает, когда текст похож у соседних услуг.\nprint("\\nЗагружаем microcat classifier...")
+
+
+# Microcat нужен как дополнительное сужение темы запроса. Это особенно помогает, когда текст похож у соседних услуг.
+print("\nЗагружаем microcat classifier...")
 vectorizer = joblib.load(MICROCAT_VECTORIZER_PATH)
 classifier = joblib.load(MICROCAT_CLASSIFIER_PATH)
 query_features = vectorizer.transform(query_texts)
@@ -209,7 +230,10 @@ for idx, mc in enumerate(item_microcats):
     microcat_to_indices[mc].append(idx)
 for mc in list(microcat_to_indices):
     microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
-\n\n# Из train вытаскиваю только исторические сигналы: exact query, microcat и переходы между локациями.\nprint("\\nЗагружаем train history...")
+
+
+# Из train вытаскиваю только исторические сигналы: exact query, microcat и переходы между локациями.
+print("\nЗагружаем train history...")
 train = pd.read_parquet(
     TRAIN_PATH,
     columns=["search_query", "search_location_id", "item_id", "item_location_id", "item_microcat_id"],
@@ -238,7 +262,10 @@ mc_counts = (
 history_microcats = {}
 for query, group in mc_counts.groupby("_norm_query"):
     history_microcats[query] = group["_mc"].head(5).tolist()
-\n\n# Geo prior считаю по train: для каждой search_location беру наиболее частые item_location кроме точного совпадения.\nprint("\\nСтроим GEO PRIOR...")
+
+
+# Geo prior считаю по train: для каждой search_location беру наиболее частые item_location кроме точного совпадения.
+print("\nСтроим GEO PRIOR...")
 geo_counts = (
     train.groupby(["search_location_id", "item_location_id"], dropna=False).size().reset_index(name="count")
 )
@@ -288,7 +315,10 @@ print("ALT BM25 non-empty queries:", alt_bm25_nonempty, "/", len(queries))
 benchmark_norm_queries = [norm_query(x) for x in queries["search_query"]]
 usable_history_queries = sum(q in history_items for q in benchmark_norm_queries)
 print("Queries с usable exact-history:", usable_history_queries)
-\n\n# Для повторяющихся запросов одного exact-history мало, поэтому усредняю embeddings известных positive items и ищу похожие объявления.\nprint("\\nBuilding exact-query history prototypes...")
+
+
+# Для повторяющихся запросов одного exact-history мало, поэтому усредняю embeddings известных positive items и ищу похожие объявления.
+print("\nBuilding exact-query history prototypes...")
 train_item_embeddings = np.load(TRAIN_BGE_EMB_PATH, mmap_mode="r")
 train_embedding_ids = np.load(TRAIN_BGE_IDS_PATH, allow_pickle=True)
 assert len(train_item_embeddings) == len(train_embedding_ids)
@@ -350,7 +380,10 @@ del train_embedding_ids
 del full_history_counts
 del history_count_groups
 gc.collect()
-\n\n# Дополнительные semantic pools строю уже внутри предсказанных microcat и комбинаций location × microcat.\nprint("\\nMicrocat BGE candidates...")
+
+
+# Дополнительные semantic pools строю уже внутри предсказанных microcat и комбинаций location × microcat.
+print("\nMicrocat BGE candidates...")
 microcat_bge_top = []
 combined_microcat_sets = []
 for i in tqdm(range(len(queries))):
@@ -408,7 +441,10 @@ print("Exact-MC non-empty:", exact_mc_nonempty, "/", len(queries))
 print("ALT-MC non-empty:", alt_mc_nonempty, "/", len(queries))
 assert len(exact_mc_bge_top) == len(queries)
 assert len(alt_mc_bge_top) == len(queries)
-\n\n# Финальная часть: объединяю все каналы через weighted RRF, затем добавляю небольшие geo/microcat bonuses и беру top-50.\nprint("\\nФормируем answer.csv...")
+
+
+# Финальная часть: объединяю все каналы через weighted RRF, затем добавляю небольшие geo/microcat bonuses и беру top-50.
+print("\nФормируем answer.csv...")
 answers = []
 history_inserted_total = 0
 geo_candidate_boosts = 0
@@ -475,7 +511,10 @@ for i in tqdm(range(len(queries))):
                 break
     answers.append(" ".join(result[:50]))
 submission = pd.DataFrame({"query_id": queries["query_id"].astype(str), "answer": answers})
-\n\n# Перед сохранением ещё раз проверяю формат: ровно 50 уникальных item_id и только из benchmark corpus.\nprint("\\nПроверяем answer.csv...")
+
+
+# Перед сохранением ещё раз проверяю формат: ровно 50 уникальных item_id и только из benchmark corpus.
+print("\nПроверяем answer.csv...")
 assert list(submission.columns) == ["query_id", "answer"]
 assert len(submission) == 2452
 assert submission["query_id"].nunique() == 2452
