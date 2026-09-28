@@ -14,7 +14,7 @@ BM25_INDEX_PATH = DATA_DIR / "benchmark_bm25_index"
 ITEM_COLUMNS = ["item_title_raw", "item_infm_params_text", "item_description_raw", "item_id"]
 
 def select_device():
-    """Choose CUDA, then Apple MPS, otherwise CPU."""
+    """Выбираем CUDA, потом MPS, в крайнем случае считаем на CPU."""
     if torch.cuda.is_available():
         return "cuda"
     if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
@@ -22,22 +22,22 @@ def select_device():
     return "cpu"
 
 def load_items():
-    """Load unique benchmark items in the order used by the final solution."""
+    """Берём уникальные benchmark items в том же порядке, который потом использует solution.py."""
     items = pd.read_parquet(ITEMS_PATH, columns=ITEM_COLUMNS)
     return items.drop_duplicates("item_id").reset_index(drop=True)
 
 def build_texts(items):
-    """Build item text exactly as in the train asset builder."""
+    """Текст собираем точно так же, как для train, иначе train/benchmark retrieval будет несогласованным."""
     titles = items["item_title_raw"].fillna("").astype(str)
     params = items["item_infm_params_text"].fillna("").astype(str)
     descriptions = items["item_description_raw"].fillna("").astype(str).str.slice(0, 600)
     bge_texts = (titles + ". " + params + ". " + descriptions).tolist()
-    # Title duplication is an intentional lexical weighting choice from validation.
+    # Title здесь тоже дублирую — это тот же lexical weighting, который использовался при подборе пайплайна.
     bm25_texts = (titles + " " + titles + " " + params + " " + descriptions).tolist()
     return bge_texts, bm25_texts
 
 def ensure_bge_assets(items, texts):
-    """Create normalized BGE embeddings or validate existing artifacts."""
+    """Проверяем готовые embeddings или считаем их, если файлов ещё нет."""
     item_ids = items["item_id"].to_numpy()
     if BGE_EMBEDDINGS_PATH.exists() and BGE_ITEM_IDS_PATH.exists():
         embeddings = np.load(BGE_EMBEDDINGS_PATH, mmap_mode="r")
@@ -59,7 +59,7 @@ def ensure_bge_assets(items, texts):
     print("Saved:", BGE_ITEM_IDS_PATH)
 
 def ensure_bm25_index(texts):
-    """Build the benchmark lexical retrieval index once."""
+    """Строим BM25 индекс для benchmark corpus, повторно его считать уже не нужно."""
     if BM25_INDEX_PATH.exists():
         print("Benchmark BM25 index already exists; skipping.")
         return
@@ -71,6 +71,9 @@ def ensure_bm25_index(texts):
     retriever.save(str(BM25_INDEX_PATH))
     print("Saved:", BM25_INDEX_PATH)
 
+
+
+# Основной сценарий простой: загрузить items, собрать тексты, затем BGE и BM25.
 def main():
     if not ITEMS_PATH.exists():
         raise FileNotFoundError(f"Missing input file: {ITEMS_PATH}")

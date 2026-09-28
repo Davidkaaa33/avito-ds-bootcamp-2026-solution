@@ -14,7 +14,7 @@ BM25_INDEX_PATH = DATA_DIR / "train_bm25_index"
 ITEM_COLUMNS = ["item_title_raw", "item_infm_params_text", "item_description_raw", "item_id"]
 
 def select_device():
-    """Choose CUDA, then Apple MPS, otherwise CPU."""
+    """Выбираем CUDA, потом MPS, а если ускорителя нет — обычный CPU."""
     if torch.cuda.is_available():
         return "cuda"
     if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
@@ -22,22 +22,22 @@ def select_device():
     return "cpu"
 
 def load_items():
-    """Load unique train items in the exact order used by saved embeddings."""
+    """Берём уникальные train items и сохраняем тот же порядок, в котором будут лежать embeddings."""
     items = pd.read_parquet(TRAIN_PATH, columns=ITEM_COLUMNS)
     return items.drop_duplicates("item_id").reset_index(drop=True)
 
 def build_texts(items):
-    """Build the exact BGE and BM25 item representations used by the pipeline."""
+    """Собираем два варианта текста: один для BGE, второй для BM25."""
     titles = items["item_title_raw"].fillna("").astype(str)
     params = items["item_infm_params_text"].fillna("").astype(str)
     descriptions = items["item_description_raw"].fillna("").astype(str).str.slice(0, 600)
     bge_texts = (titles + ". " + params + ". " + descriptions).tolist()
-    # Duplicating the title gives the strongest lexical field extra BM25 weight.
+    # Title дублирую специально: так он получает немного больший вес в BM25, и это лучше работало на validation.
     bm25_texts = (titles + " " + titles + " " + params + " " + descriptions).tolist()
     return bge_texts, bm25_texts
 
 def ensure_bge_assets(items, texts):
-    """Create normalized BGE embeddings or validate the existing artifacts."""
+    """Если embeddings уже есть — проверяем их, иначе считаем заново."""
     item_ids = items["item_id"].to_numpy()
     if BGE_EMBEDDINGS_PATH.exists() and BGE_ITEM_IDS_PATH.exists():
         embeddings = np.load(BGE_EMBEDDINGS_PATH, mmap_mode="r")
@@ -59,7 +59,7 @@ def ensure_bge_assets(items, texts):
     print("Saved:", BGE_ITEM_IDS_PATH)
 
 def ensure_bm25_index(texts):
-    """Build the lexical retrieval index once."""
+    """BM25 индекс строим один раз и дальше просто переиспользуем."""
     if BM25_INDEX_PATH.exists():
         print("Train BM25 index already exists; skipping.")
         return
@@ -71,6 +71,9 @@ def ensure_bm25_index(texts):
     retriever.save(str(BM25_INDEX_PATH))
     print("Saved:", BM25_INDEX_PATH)
 
+
+
+# Здесь уже просто последовательная сборка всех train-артефактов.
 def main():
     if not TRAIN_PATH.exists():
         raise FileNotFoundError(f"Missing input file: {TRAIN_PATH}")

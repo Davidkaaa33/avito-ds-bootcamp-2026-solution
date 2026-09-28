@@ -13,7 +13,7 @@ VECTORIZER_PATH = DATA_DIR / "microcat_vectorizer.joblib"
 CLASSIFIER_PATH = DATA_DIR / "microcat_classifier.joblib"
 
 def build_vectorizer():
-    """Combine word and character n-grams for short, noisy service queries."""
+    """Смешиваем word и char n-grams: на коротких и кривоватых сервисных запросах вместе они работают стабильнее."""
     return FeatureUnion(
         [
             ("word", TfidfVectorizer(ngram_range=(1, 2), min_df=2, max_features=80_000, sublinear_tf=True)),
@@ -27,7 +27,7 @@ def build_vectorizer():
     )
 
 def evaluate_top_k(classifier, vectorizer, val_df):
-    """Report microcategory coverage used when selecting the retrieval depth."""
+    """Смотрим top-k coverage, чтобы понимать, сколько microcat имеет смысл брать в retrieval."""
     val_queries = (
         val_df.groupby("search_query")["item_microcat_id"].agg(set).reset_index(name="true_microcats")
     )
@@ -47,10 +47,13 @@ def evaluate_top_k(classifier, vectorizer, val_df):
         print("Mean microcat recall:", round(np.mean(recalls) * 100, 2), "%")
         print("Queries with >=1 correct microcat:", round(np.mean(hits) * 100, 2), "%")
 
+
+
+# Обучение небольшое: TF-IDF признаки + LinearSVC, без тяжёлой нейросети.
 def main():
     print("Loading train...")
     df = pd.read_parquet(TRAIN_PATH, columns=["search_query", "item_microcat_id"])
-    # Split by query to avoid validating on the same search text seen during training.
+    # Деление делаю именно по search_query, чтобы один и тот же текст не оказался одновременно в train и validation.
     splitter = GroupShuffleSplit(n_splits=1, test_size=0.1, random_state=42)
     train_idx, val_idx = next(splitter.split(df, groups=df["search_query"]))
     train_df = df.iloc[train_idx].copy()
