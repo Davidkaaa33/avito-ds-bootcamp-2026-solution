@@ -74,6 +74,7 @@ GEO_WEIGHTS = [
 
 RANDOM_STATE = 42
 
+
 def microcat_key(value):
 
     if pd.isna(value):
@@ -94,6 +95,7 @@ def microcat_key(value):
 
     return str(value)
 
+
 def add_rrf(
     scores,
     indices,
@@ -107,19 +109,11 @@ def add_rrf(
 
         idx = int(idx)
 
-        scores[idx] = (
-            scores.get(
-                idx,
-                0.0,
-            )
-            +
-            weight
-            /
-            (
-                RRF_K
-                + rank
-            )
-        )
+        scores[idx] = scores.get(
+            idx,
+            0.0,
+        ) + weight / (RRF_K + rank)
+
 
 def top_k_indices(
     scores,
@@ -141,30 +135,19 @@ def top_k_indices(
 
     if k == len(indices):
 
-        order = np.argsort(
-            scores
-        )[::-1]
+        order = np.argsort(scores)[::-1]
 
-        return indices[
-            order
-        ]
+        return indices[order]
 
     positions = np.argpartition(
         scores,
         -k,
     )[-k:]
 
-    order = np.argsort(
-        scores[
-            positions
-        ]
-    )[::-1]
+    order = np.argsort(scores[positions])[::-1]
 
-    return indices[
-        positions[
-            order
-        ]
-    ]
+    return indices[positions[order]]
+
 
 if torch.backends.mps.is_available():
     DEVICE = "mps"
@@ -179,16 +162,14 @@ print("Device:", DEVICE)
 
 print("\nЗагружаем train...")
 
-train = pd.read_parquet(
-    TRAIN_PATH
-)
+train = pd.read_parquet(TRAIN_PATH)
 
-train["item_id"] = (
-    train["item_id"]
-    .astype(str)
-)
+train["item_id"] = train["item_id"].astype(str)
 
-print( "Rows:",len(train),)
+print(
+    "Rows:",
+    len(train),
+)
 
 print("\nСтроим query-disjoint split...")
 
@@ -201,49 +182,32 @@ splitter = GroupShuffleSplit(
 train_idx, val_idx = next(
     splitter.split(
         train,
-        groups=train[
-            "search_query"
-        ],
+        groups=train["search_query"],
     )
 )
 
-supervision = (
-    train.iloc[
-        train_idx
-    ]
-    .copy()
+supervision = train.iloc[train_idx].copy()
+
+holdout = train.iloc[val_idx].copy()
+
+query_overlap = set(supervision["search_query"]) & set(holdout["search_query"])
+
+assert len(query_overlap) == 0
+
+print(
+    "Supervision rows:",
+    len(supervision),
 )
 
-holdout = (
-    train.iloc[
-        val_idx
-    ]
-    .copy()
+print(
+    "Holdout rows:",
+    len(holdout),
 )
 
-query_overlap = (
-    set(
-        supervision[
-            "search_query"
-        ]
-    )
-    &
-    set(
-        holdout[
-            "search_query"
-        ]
-    )
+print(
+    "Query overlap:",
+    len(query_overlap),
 )
-
-assert len(
-    query_overlap
-) == 0
-
-print( "Supervision rows:",len(supervision),)
-
-print( "Holdout rows:",len(holdout),)
-
-print( "Query overlap:",len(query_overlap),)
 
 QUERY_COLUMNS = [
     "search_query",
@@ -254,49 +218,34 @@ QUERY_COLUMNS = [
 ]
 
 val_groups = (
-    holdout
-    .groupby(
+    holdout.groupby(
         QUERY_COLUMNS,
         dropna=False,
     )["item_id"]
     .agg(set)
-    .reset_index(
-        name="relevant_ids"
-    )
+    .reset_index(name="relevant_ids")
 )
 
-print( "All holdout groups:",len(val_groups),)
-
-shuffled_val = (
-    val_groups
-    .sample(
-        frac=1,
-        random_state=123,
-    )
-    .reset_index(
-        drop=True
-    )
+print(
+    "All holdout groups:",
+    len(val_groups),
 )
+
+shuffled_val = val_groups.sample(
+    frac=1,
+    random_state=123,
+).reset_index(drop=True)
 
 if len(shuffled_val) < 4000:
 
-    raise ValueError(
-        f"Недостаточно holdout groups: "
-        f"{len(shuffled_val)}"
-    )
+    raise ValueError(f"Недостаточно holdout groups: " f"{len(shuffled_val)}")
 
-sample = (
-    shuffled_val
-    .iloc[
-        1000:4000
-    ]
-    .copy()
-    .reset_index(
-        drop=True
-    )
+sample = shuffled_val.iloc[1000:4000].copy().reset_index(drop=True)
+
+print(
+    "Independent validation groups:",
+    len(sample),
 )
-
-print( "Independent validation groups:",len(sample),)
 
 ITEM_COLUMNS = [
     "item_id",
@@ -307,67 +256,38 @@ ITEM_COLUMNS = [
     "item_microcat_id",
 ]
 
-items = (
-    train[
-        ITEM_COLUMNS
-    ]
-    .drop_duplicates(
-        "item_id"
-    )
-    .reset_index(
-        drop=True
-    )
-)
+items = train[ITEM_COLUMNS].drop_duplicates("item_id").reset_index(drop=True)
 
-item_ids = (
-    items[
-        "item_id"
-    ]
-    .astype(str)
-    .to_numpy()
-)
+item_ids = items["item_id"].astype(str).to_numpy()
 
-item_locations = (
-    items[
-        "item_location_id"
-    ]
-    .to_numpy()
-)
+item_locations = items["item_location_id"].to_numpy()
 
 item_microcats = np.asarray(
-    [
-        microcat_key(x)
-        for x in items[
-            "item_microcat_id"
-        ]
-    ],
+    [microcat_key(x) for x in items["item_microcat_id"]],
     dtype=object,
 )
 
-print( "Items:",len(items),)
+print(
+    "Items:",
+    len(items),
+)
 
 print("\nЗагружаем BGE embeddings...")
 
-item_embeddings = np.load(
-    BGE_EMB_PATH
-)
+item_embeddings = np.load(BGE_EMB_PATH)
 
 saved_item_ids = np.load(
     BGE_IDS_PATH,
     allow_pickle=True,
 )
 
-assert (
-    len(item_embeddings)
-    == len(items)
-)
+assert len(item_embeddings) == len(items)
 
 assert np.array_equal(
     saved_item_ids.astype(str),
     item_ids,
 ), (
-    "Порядок item_id "
-    "не совпадает с embeddings!"
+    "Порядок item_id " "не совпадает с embeddings!"
 )
 
 print("Embeddings:", item_embeddings.shape)
@@ -376,58 +296,32 @@ print("\nСтроим location index...")
 
 location_to_indices = {}
 
-for (
-    location,
-    group
-) in items.groupby(
-    "item_location_id"
-):
+for location, group in items.groupby("item_location_id"):
 
-    location_to_indices[
-        location
-    ] = (
-        group.index.to_numpy(
-            dtype=np.int64
-        )
-    )
+    location_to_indices[location] = group.index.to_numpy(dtype=np.int64)
 
 print("Строим microcat index...")
 
-microcat_to_indices = (
-    defaultdict(list)
-)
+microcat_to_indices = defaultdict(list)
 
-for idx, mc in enumerate(
-    item_microcats
-):
+for idx, mc in enumerate(item_microcats):
 
     if mc is None:
         continue
 
-    microcat_to_indices[
-        mc
-    ].append(
-        idx
-    )
+    microcat_to_indices[mc].append(idx)
 
-for mc in list(
-    microcat_to_indices
-):
+for mc in list(microcat_to_indices):
 
-    microcat_to_indices[
-        mc
-    ] = np.asarray(
-        microcat_to_indices[
-            mc
-        ],
+    microcat_to_indices[mc] = np.asarray(
+        microcat_to_indices[mc],
         dtype=np.int64,
     )
 
 print("\nСтроим geo prior...")
 
 geo_counts = (
-    supervision
-    .groupby(
+    supervision.groupby(
         [
             "search_location_id",
             "item_location_id",
@@ -435,85 +329,49 @@ geo_counts = (
         dropna=False,
     )
     .size()
-    .reset_index(
-        name="count"
-    )
+    .reset_index(name="count")
 )
 
-geo_counts[
-    "total"
-] = (
-    geo_counts
-    .groupby(
-        "search_location_id"
-    )["count"]
-    .transform("sum")
-)
+geo_counts["total"] = geo_counts.groupby("search_location_id")["count"].transform("sum")
 
-geo_counts[
-    "prob"
-] = (
-    geo_counts[
-        "count"
-    ]
-    /
-    geo_counts[
-        "total"
-    ]
-)
+geo_counts["prob"] = geo_counts["count"] / geo_counts["total"]
 
-geo_counts = (
-    geo_counts
-    .sort_values(
-        [
-            "search_location_id",
-            "count",
-        ],
-        ascending=[
-            True,
-            False,
-        ],
-    )
+geo_counts = geo_counts.sort_values(
+    [
+        "search_location_id",
+        "count",
+    ],
+    ascending=[
+        True,
+        False,
+    ],
 )
 
 geo_map = {}
 
-for (
-    search_location,
-    group
-) in geo_counts.groupby(
-    "search_location_id"
-):
+for search_location, group in geo_counts.groupby("search_location_id"):
 
     values = []
 
-    for row in (
-        group.itertuples(
-            index=False
-        )
-    ):
+    for row in group.itertuples(index=False):
 
-        if (
-            row.item_location_id
-            == search_location
-        ):
+        if row.item_location_id == search_location:
 
             continue
 
         values.append(
             (
                 row.item_location_id,
-                float(
-                    row.prob
-                ),
+                float(row.prob),
             )
         )
 
-    geo_map[
-        search_location
-    ] = values
+    geo_map[search_location] = values
 
-print( "Geo search locations:",len(geo_map),)
+print(
+    "Geo search locations:",
+    len(geo_map),
+)
 
 print("\nЗагружаем BGE-M3...")
 
@@ -524,14 +382,7 @@ model = SentenceTransformer(
 
 model.max_seq_length = 128
 
-query_texts = (
-    sample[
-        "search_query"
-    ]
-    .fillna("")
-    .astype(str)
-    .tolist()
-)
+query_texts = sample["search_query"].fillna("").astype(str).tolist()
 
 print("\nКодируем validation queries...")
 
@@ -541,9 +392,7 @@ query_embeddings = model.encode(
     normalize_embeddings=True,
     show_progress_bar=True,
     convert_to_numpy=True,
-).astype(
-    np.float32
-)
+).astype(np.float32)
 
 print("\nGlobal BGE top-500...")
 
@@ -562,12 +411,7 @@ for start in tqdm(
         len(sample),
     )
 
-    scores = (
-        query_embeddings[
-            start:end
-        ]
-        @ item_embeddings.T
-    )
+    scores = query_embeddings[start:end] @ item_embeddings.T
 
     k = min(
         K_GLOBAL,
@@ -580,13 +424,9 @@ for start in tqdm(
         axis=1,
     )[:, -k:]
 
-    for row in range(
-        end - start
-    ):
+    for row in range(end - start):
 
-        idx = (
-            positions[row]
-        )
+        idx = positions[row]
 
         order = np.argsort(
             scores[
@@ -595,38 +435,19 @@ for start in tqdm(
             ]
         )[::-1]
 
-        global_bge_top.append(
-            idx[
-                order
-            ]
-        )
+        global_bge_top.append(idx[order])
 
 print("\nLocal BGE top-500...")
 
 local_bge_top = []
 
-for i in tqdm(
-    range(
-        len(sample)
-    )
-):
+for i in tqdm(range(len(sample))):
 
-    search_location = (
-        sample.iloc[i][
-            "search_location_id"
-        ]
-    )
+    search_location = sample.iloc[i]["search_location_id"]
 
-    local_indices = (
-        location_to_indices.get(
-            search_location
-        )
-    )
+    local_indices = location_to_indices.get(search_location)
 
-    if (
-        local_indices is None
-        or len(local_indices) == 0
-    ):
+    if local_indices is None or len(local_indices) == 0:
 
         local_bge_top.append(
             np.array(
@@ -637,12 +458,7 @@ for i in tqdm(
 
         continue
 
-    local_scores = (
-        item_embeddings[
-            local_indices
-        ]
-        @ query_embeddings[i]
-    )
+    local_scores = item_embeddings[local_indices] @ query_embeddings[i]
 
     local_bge_top.append(
         top_k_indices(
@@ -655,30 +471,16 @@ for i in tqdm(
 print("\nЗагружаем BM25...")
 
 retriever = bm25s.BM25.load(
-    str(
-        BM25_DIR
-    ),
+    str(BM25_DIR),
     load_corpus=False,
 )
 
-stemmer = Stemmer.Stemmer(
-    "russian"
-)
+stemmer = Stemmer.Stemmer("russian")
 
 bm25_query_texts = (
-    sample[
-        "search_query"
-    ]
-    .fillna("")
-    .astype(str)
-    +
-    " "
-    +
-    sample[
-        "search_infm_params_text"
-    ]
-    .fillna("")
-    .astype(str)
+    sample["search_query"].fillna("").astype(str)
+    + " "
+    + sample["search_infm_params_text"].fillna("").astype(str)
 ).tolist()
 
 query_tokens = bm25s.tokenize(
@@ -689,62 +491,35 @@ query_tokens = bm25s.tokenize(
 
 print("BM25 top-10000...")
 
-bm25_wide, _ = (
-    retriever.retrieve(
-        query_tokens,
-        k=min(
-            K_BM25_WIDE,
-            len(items),
-        ),
-    )
+bm25_wide, _ = retriever.retrieve(
+    query_tokens,
+    k=min(
+        K_BM25_WIDE,
+        len(items),
+    ),
 )
 
-global_bm25_top = (
-    bm25_wide[
-        :,
-        :K_GLOBAL
-    ]
-)
+global_bm25_top = bm25_wide[:, :K_GLOBAL]
 
 print("Local BM25...")
 
 local_bm25_top = []
 
-for i in tqdm(
-    range(
-        len(sample)
-    )
-):
+for i in tqdm(range(len(sample))):
 
-    search_location = (
-        sample.iloc[i][
-            "search_location_id"
-        ]
-    )
+    search_location = sample.iloc[i]["search_location_id"]
 
     candidates = []
 
-    for idx in (
-        bm25_wide[i]
-    ):
+    for idx in bm25_wide[i]:
 
         idx = int(idx)
 
-        if (
-            item_locations[
-                idx
-            ]
-            == search_location
-        ):
+        if item_locations[idx] == search_location:
 
-            candidates.append(
-                idx
-            )
+            candidates.append(idx)
 
-            if (
-                len(candidates)
-                >= K_LOCAL_BM25
-            ):
+            if len(candidates) >= K_LOCAL_BM25:
                 break
 
     local_bm25_top.append(
@@ -756,30 +531,16 @@ for i in tqdm(
 
 print("\nMicrocat classifier...")
 
-vectorizer = joblib.load(
-    MICROCAT_VECTORIZER_PATH
-)
+vectorizer = joblib.load(MICROCAT_VECTORIZER_PATH)
 
-classifier = joblib.load(
-    MICROCAT_CLASSIFIER_PATH
-)
+classifier = joblib.load(MICROCAT_CLASSIFIER_PATH)
 
-X = vectorizer.transform(
-    query_texts
-)
+X = vectorizer.transform(query_texts)
 
-decision = (
-    classifier
-    .decision_function(
-        X
-    )
-)
+decision = classifier.decision_function(X)
 
 classes = np.asarray(
-    [
-        microcat_key(x)
-        for x in classifier.classes_
-    ],
+    [microcat_key(x) for x in classifier.classes_],
     dtype=object,
 )
 
@@ -796,13 +557,9 @@ mc_positions = np.argpartition(
 
 predicted_microcats = []
 
-for i in range(
-    len(sample)
-):
+for i in range(len(sample)):
 
-    pos = (
-        mc_positions[i]
-    )
+    pos = mc_positions[i]
 
     order = np.argsort(
         decision[
@@ -811,13 +568,7 @@ for i in range(
         ]
     )[::-1]
 
-    predicted_microcats.append(
-        classes[
-            pos[
-                order
-            ]
-        ].tolist()
-    )
+    predicted_microcats.append(classes[pos[order]].tolist())
 
 print("Microcat BGE candidates...")
 
@@ -825,31 +576,15 @@ microcat_bge_top = []
 
 microcat_sets = []
 
-for i in tqdm(
-    range(
-        len(sample)
-    )
-):
+for i in tqdm(range(len(sample))):
 
-    selected = (
-        predicted_microcats[i]
-    )
+    selected = predicted_microcats[i]
 
-    selected_set = set(
-        selected
-    )
+    selected_set = set(selected)
 
-    microcat_sets.append(
-        selected_set
-    )
+    microcat_sets.append(selected_set)
 
-    pools = [
-        microcat_to_indices[
-            mc
-        ]
-        for mc in selected
-        if mc in microcat_to_indices
-    ]
+    pools = [microcat_to_indices[mc] for mc in selected if mc in microcat_to_indices]
 
     if not pools:
 
@@ -862,18 +597,9 @@ for i in tqdm(
 
         continue
 
-    candidate_indices = np.unique(
-        np.concatenate(
-            pools
-        )
-    )
+    candidate_indices = np.unique(np.concatenate(pools))
 
-    candidate_scores = (
-        item_embeddings[
-            candidate_indices
-        ]
-        @ query_embeddings[i]
-    )
+    candidate_scores = item_embeddings[candidate_indices] @ query_embeddings[i]
 
     microcat_bge_top.append(
         top_k_indices(
@@ -891,11 +617,7 @@ baseline_top50 = []
 
 baseline_recalls = []
 
-for i in tqdm(
-    range(
-        len(sample)
-    )
-):
+for i in tqdm(range(len(sample))):
 
     scores = {}
 
@@ -929,43 +651,19 @@ for i in tqdm(
         MICROCAT_SOURCE_WEIGHT,
     )
 
-    search_location = (
-        sample.iloc[i][
-            "search_location_id"
-        ]
-    )
+    search_location = sample.iloc[i]["search_location_id"]
 
-    selected_microcats = (
-        microcat_sets[i]
-    )
+    selected_microcats = microcat_sets[i]
 
     for idx in scores:
 
-        if (
-            item_locations[
-                idx
-            ]
-            == search_location
-        ):
+        if item_locations[idx] == search_location:
 
-            scores[
-                idx
-            ] += (
-                LOCATION_BONUS
-            )
+            scores[idx] += LOCATION_BONUS
 
-        if (
-            item_microcats[
-                idx
-            ]
-            in selected_microcats
-        ):
+        if item_microcats[idx] in selected_microcats:
 
-            scores[
-                idx
-            ] += (
-                MICROCAT_BONUS
-            )
+            scores[idx] += MICROCAT_BONUS
 
     ranked = sorted(
         scores,
@@ -973,75 +671,41 @@ for i in tqdm(
         reverse=True,
     )
 
-    top50 = (
-        ranked[:50]
-    )
+    top50 = ranked[:50]
 
-    baseline_top50.append(
-        top50
-    )
+    baseline_top50.append(top50)
 
-    relevant = (
-        sample.iloc[i][
-            "relevant_ids"
-        ]
-    )
+    relevant = sample.iloc[i]["relevant_ids"]
 
-    predicted = set(
-        item_ids[
-            top50
-        ]
-    )
+    predicted = set(item_ids[top50])
 
-    recall = (
-        len(
-            predicted
-            &
-            relevant
-        )
-        /
-        len(
-            relevant
-        )
-    )
+    recall = len(predicted & relevant) / len(relevant)
 
-    baseline_recalls.append(
-        recall
-    )
+    baseline_recalls.append(recall)
 
-    base_scores.append(
-        scores
-    )
+    base_scores.append(scores)
 
-baseline_mean = float(
-    np.mean(
-        baseline_recalls
-    )
-)
+baseline_mean = float(np.mean(baseline_recalls))
 
-print( "\n" + "=" * 90)
+print("\n" + "=" * 90)
 
 print("INDEPENDENT BASELINE")
 
-print( "=" * 90)
+print("=" * 90)
 
 print(f"Recall@50: " f"{baseline_mean:.5f} " f"({baseline_mean * 100:.2f}%)")
 
-print( "\n" + "=" * 90)
+print("\n" + "=" * 90)
 
 print("INDEPENDENT GEO BONUS GRID")
 
-print( "=" * 90)
+print("=" * 90)
 
 results = []
 
-for top_n in (
-    GEO_TOP_NS
-):
+for top_n in GEO_TOP_NS:
 
-    for weight in (
-        GEO_WEIGHTS
-    ):
+    for weight in GEO_WEIGHTS:
 
         recalls = []
 
@@ -1053,66 +717,28 @@ for top_n in (
 
         total_changed = 0
 
-        for i in range(
-            len(sample)
-        ):
+        for i in range(len(sample)):
 
-            search_location = (
-                sample.iloc[i][
-                    "search_location_id"
-                ]
-            )
+            search_location = sample.iloc[i]["search_location_id"]
 
-            geo_values = (
-                geo_map.get(
-                    search_location,
-                    [],
-                )[
-                    :top_n
-                ]
-            )
+            geo_values = geo_map.get(
+                search_location,
+                [],
+            )[:top_n]
 
-            geo_probabilities = {
-                location:
-                    probability
+            geo_probabilities = {location: probability for (location, probability) in geo_values}
 
-                for (
-                    location,
-                    probability
-                )
-                in geo_values
-            }
-
-            scores = dict(
-                base_scores[i]
-            )
+            scores = dict(base_scores[i])
 
             for idx in scores:
 
-                item_location = (
-                    item_locations[
-                        idx
-                    ]
-                )
+                item_location = item_locations[idx]
 
-                probability = (
-                    geo_probabilities.get(
-                        item_location
-                    )
-                )
+                probability = geo_probabilities.get(item_location)
 
-                if (
-                    probability
-                    is not None
-                ):
+                if probability is not None:
 
-                    scores[
-                        idx
-                    ] += (
-                        weight
-                        *
-                        probability
-                    )
+                    scores[idx] += weight * probability
 
             ranked = sorted(
                 scores,
@@ -1120,74 +746,29 @@ for top_n in (
                 reverse=True,
             )
 
-            top50 = (
-                ranked[:50]
-            )
+            top50 = ranked[:50]
 
-            old_top = set(
-                baseline_top50[
-                    i
-                ]
-            )
+            old_top = set(baseline_top50[i])
 
-            new_top = set(
-                top50
-            )
+            new_top = set(top50)
 
-            total_changed += (
-                len(
-                    old_top
-                    ^
-                    new_top
-                )
-                // 2
-            )
+            total_changed += len(old_top ^ new_top) // 2
 
-            relevant = (
-                sample.iloc[i][
-                    "relevant_ids"
-                ]
-            )
+            relevant = sample.iloc[i]["relevant_ids"]
 
-            predicted = set(
-                item_ids[
-                    top50
-                ]
-            )
+            predicted = set(item_ids[top50])
 
-            recall = (
-                len(
-                    predicted
-                    &
-                    relevant
-                )
-                /
-                len(
-                    relevant
-                )
-            )
+            recall = len(predicted & relevant) / len(relevant)
 
-            recalls.append(
-                recall
-            )
+            recalls.append(recall)
 
-            old_recall = (
-                baseline_recalls[
-                    i
-                ]
-            )
+            old_recall = baseline_recalls[i]
 
-            if (
-                recall
-                > old_recall
-            ):
+            if recall > old_recall:
 
                 improved += 1
 
-            elif (
-                recall
-                < old_recall
-            ):
+            elif recall < old_recall:
 
                 worse += 1
 
@@ -1195,107 +776,86 @@ for top_n in (
 
                 same += 1
 
-        mean_recall = float(
-            np.mean(
-                recalls
-            )
-        )
+        mean_recall = float(np.mean(recalls))
 
-        delta_pp = (
-            mean_recall
-            -
-            baseline_mean
-        ) * 100
+        delta_pp = (mean_recall - baseline_mean) * 100
 
-        avg_changed = (
-            total_changed
-            /
-            len(sample)
-        )
+        avg_changed = total_changed / len(sample)
 
         results.append(
             {
-                "top_n":
-                    top_n,
-
-                "weight":
-                    weight,
-
-                "recall":
-                    mean_recall,
-
-                "delta_pp":
-                    delta_pp,
-
-                "improved":
-                    improved,
-
-                "worse":
-                    worse,
-
-                "same":
-                    same,
-
-                "avg_changed":
-                    avg_changed,
+                "top_n": top_n,
+                "weight": weight,
+                "recall": mean_recall,
+                "delta_pp": delta_pp,
+                "improved": improved,
+                "worse": worse,
+                "same": same,
+                "avg_changed": avg_changed,
             }
         )
 
-        print(f"topN={top_n:<2} | " f"weight={weight:>6.3f} | " f"Recall={mean_recall * 100:6.2f}% | " f"delta={delta_pp:+.3f} pp | " f"+groups={improved:>4} | " f"-groups={worse:>4} | " f"changed={avg_changed:.2f}")
+        print(
+            f"topN={top_n:<2} | "
+            f"weight={weight:>6.3f} | "
+            f"Recall={mean_recall * 100:6.2f}% | "
+            f"delta={delta_pp:+.3f} pp | "
+            f"+groups={improved:>4} | "
+            f"-groups={worse:>4} | "
+            f"changed={avg_changed:.2f}"
+        )
 
-result_df = pd.DataFrame(
-    results
-)
+result_df = pd.DataFrame(results)
 
-result_df = (
-    result_df
-    .sort_values(
-        [
-            "recall",
-            "improved",
-            "worse",
-        ],
-        ascending=[
-            False,
-            False,
-            True,
-        ],
-    )
-    .reset_index(
-        drop=True
-    )
-)
+result_df = result_df.sort_values(
+    [
+        "recall",
+        "improved",
+        "worse",
+    ],
+    ascending=[
+        False,
+        False,
+        True,
+    ],
+).reset_index(drop=True)
 
-print( "\n" + "=" * 90)
+print("\n" + "=" * 90)
 
 print("BEST INDEPENDENT GEO CONFIGS")
 
-print( "=" * 90)
+print("=" * 90)
 
-print(result_df.head(15).to_string(index=False,formatters={ "recall": lambda x: f"{x * 100:.3f}%", "delta_pp": lambda x: f"{x:+.3f}",},))
-
-best = (
-    result_df.iloc[0]
+print(
+    result_df.head(15).to_string(
+        index=False,
+        formatters={
+            "recall": lambda x: f"{x * 100:.3f}%",
+            "delta_pp": lambda x: f"{x:+.3f}",
+        },
+    )
 )
 
-print( "\n" + "=" * 90)
+best = result_df.iloc[0]
+
+print("\n" + "=" * 90)
 
 print("SUMMARY")
 
-print( "=" * 90)
+print("=" * 90)
 
-print( "Independent baseline:",f"{baseline_mean * 100:.3f}%")
+print("Independent baseline:", f"{baseline_mean * 100:.3f}%")
 
-print( "Best top_n:",int(best[ "top_n"]))
+print("Best top_n:", int(best["top_n"]))
 
-print( "Best weight:",float(best[ "weight"]))
+print("Best weight:", float(best["weight"]))
 
-print( "Best Recall@50:",f"{best['recall'] * 100:.3f}%")
+print("Best Recall@50:", f"{best['recall'] * 100:.3f}%")
 
-print( "Delta:",f"{best['delta_pp']:+.3f} pp")
+print("Delta:", f"{best['delta_pp']:+.3f} pp")
 
-print( "Improved groups:",int(best[ "improved"]))
+print("Improved groups:", int(best["improved"]))
 
-print( "Worse groups:",int(best[ "worse"]))
+print("Worse groups:", int(best["worse"]))
 
-print( "Avg changed items/query:",f"{best['avg_changed']:.3f}")
+print("Avg changed items/query:", f"{best['avg_changed']:.3f}")
