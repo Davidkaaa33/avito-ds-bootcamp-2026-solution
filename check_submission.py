@@ -1,28 +1,21 @@
 from pathlib import Path
-
 import pandas as pd
-
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
-
 answer = pd.read_csv(ROOT / "answer.csv", dtype=str)
 queries = pd.read_parquet(DATA / "benchmark_queries.parquet")
 items = pd.read_parquet(DATA / "benchmark_items.parquet", columns=["item_id"])
-
 assert list(answer.columns) == ["query_id", "answer"]
 assert len(answer) == len(queries)
 assert answer["query_id"].tolist() == queries["query_id"].astype(str).tolist()
-
 valid_ids = set(items["item_id"].astype(str))
-
 # Every benchmark query must contain exactly 50 distinct IDs from the item corpus.
 for row in answer.itertuples(index=False):
     ids = str(row.answer).split()
     assert len(ids) == 50
     assert len(set(ids)) == 50
     assert set(ids).issubset(valid_ids)
-
 print("Submission format: OK")
 print("Rows:", len(answer))
 print("Every query has 50 unique valid item_ids.")
