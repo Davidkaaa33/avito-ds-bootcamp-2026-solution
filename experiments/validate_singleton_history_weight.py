@@ -149,7 +149,8 @@ assert np.array_equal(saved_ids.astype(str), item_ids)
 print("Embeddings:", item_embeddings.shape)
 
 
-# Здесь отдельно смотрю запросы с маленькой историей: для одного positive item prototype ведёт себя немного иначе.
+# Отдельно рассматриваю singleton-history случаи, где у запроса известен только один historical positive.
+# Такой prototype фактически равен embedding одного item, поэтому его оптимальный вес может отличаться от multi-history.
 print("\nСтроим warm-query universe...")
 query_item_counts = train.groupby(["_norm_query", "item_id"]).size().reset_index(name="count")
 unique_counts = query_item_counts.groupby("_norm_query")["item_id"].nunique()
@@ -175,7 +176,8 @@ query_text_map = (
 )
 
 
-# History/target split фиксированный, чтобы веса можно было сравнивать без случайного шума.
+# History/target split фиксирую заранее и не меняю между конфигурациями.
+# Это уменьшает случайный шум и позволяет корректно сравнивать разные prototype weights.
 print("\nBuilding history / target split...")
 query_groups = {
     query: group
@@ -239,7 +241,8 @@ for mc in list(microcat_to_indices):
     microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
 
 
-# Все остальные каналы answer4 оставляю неизменными — меняется только вес history prototype.
+# Все retrieval и fusion-компоненты answer4 оставляю прежними.
+# В эксперименте меняется только prototype weight, поэтому прирост можно отнести именно к нему.
 print("\nBuilding geo prior...")
 geo_counts = (
     train.groupby(["search_location_id", "item_location_id"], dropna=False).size().reset_index(name="count")
@@ -387,7 +390,8 @@ for i in tqdm(range(len(sample))):
         alt_mc_bge_top.append(np.array([], dtype=np.int64))
 
 
-# Для singleton prototype фактически равен embedding одного исторического item, поэтому ему можно дать другой вес.
+# В singleton случае prototype строится из одного исторического item без усреднения.
+# Из-за этого сигнал получается более резким, и отдельно проверяю, нужен ли ему больший RRF-вес.
 print("\nHistory prototype retrieval...")
 prototype_vectors = []
 for i in tqdm(range(len(sample))):
@@ -410,7 +414,8 @@ for start in tqdm(range(0, len(sample), 20), desc="Prototype retrieval"):
         prototype_top.append(idx[order].astype(np.int64))
 
 
-# Дальше сравниваю несколько весов поверх одинаковых raw scores и отдельно подтверждаю лучший на CONFIRM.
+# Несколько весов сравниваю поверх одного и того же набора raw answer4 scores.
+# Лучший вариант выбирается по TUNE и затем отдельно проверяется на CONFIRM без дополнительной подгонки.
 print("\nBuilding answer4 raw scores...")
 raw_answer4_scores = []
 for i in tqdm(range(len(sample))):
