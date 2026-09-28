@@ -22,7 +22,84 @@ jobs:
       - name: Install Black
         run: pip install black==25.1.0
       - name: Format Python files
-        run: black --line-length 110 --skip-magic-trailing-comma solution.py build_train_assets.py build_benchmark_assets.py microcat_classifier.py check_submission.py experiments/*.py
+        run: |
+          black --line-length 110 --skip-magic-trailing-comma solution.py build_train_assets.py build_benchmark_assets.py microcat_classifier.py check_submission.py experiments/*.py
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          import tokenize
+          from io import StringIO
+
+          paths = [
+              Path("solution.py"),
+              Path("build_train_assets.py"),
+              Path("build_benchmark_assets.py"),
+              Path("microcat_classifier.py"),
+              Path("check_submission.py"),
+              *sorted(Path("experiments").glob("*.py")),
+          ]
+
+          const_re = re.compile(r"^[A-Z][A-Z0-9_]*\s*=")
+
+          for path in paths:
+              text = path.read_text(encoding="utf-8")
+              lines = text.splitlines()
+
+              string_lines = set()
+              try:
+                  for token in tokenize.generate_tokens(StringIO(text).readline):
+                      if token.type == tokenize.STRING and token.start[0] != token.end[0]:
+                          string_lines.update(range(token.start[0], token.end[0] + 1))
+              except tokenize.TokenError:
+                  pass
+
+              prev_nonblank = [None] * len(lines)
+              last = None
+              for i, line in enumerate(lines):
+                  prev_nonblank[i] = last
+                  if line.strip():
+                      last = i
+
+              next_nonblank = [None] * len(lines)
+              last = None
+              for i in range(len(lines) - 1, -1, -1):
+                  next_nonblank[i] = last
+                  if lines[i].strip():
+                      last = i
+
+              out = []
+              for i, line in enumerate(lines):
+                  if line.strip() or (i + 1) in string_lines:
+                      out.append(line.rstrip())
+                      continue
+
+                  p = prev_nonblank[i]
+                  n = next_nonblank[i]
+                  if p is None or n is None:
+                      continue
+
+                  prev = lines[p]
+                  nxt = lines[n]
+                  prev_indent = len(prev) - len(prev.lstrip())
+                  next_indent = len(nxt) - len(nxt.lstrip())
+
+                  # Blank lines inside an indented block add no readability here.
+                  if prev_indent > 0 and next_indent > 0:
+                      continue
+
+                  # Keep constant/config sections dense.
+                  if const_re.match(prev) and const_re.match(nxt):
+                      continue
+
+                  # Otherwise retain at most one blank line.
+                  if out and out[-1] == "":
+                      continue
+                  out.append("")
+
+              path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+          PY
+      - name: Compile after formatting
+        run: python -m py_compile solution.py build_train_assets.py build_benchmark_assets.py microcat_classifier.py check_submission.py experiments/*.py
       - name: Commit formatting
         run: |
           if git diff --quiet; then
