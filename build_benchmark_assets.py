@@ -4,13 +4,18 @@ import bm25s
 import numpy as np
 import pandas as pd
 import Stemmer
+import torch
 
 from sentence_transformers import SentenceTransformer
 
+def select_device():
+    if torch.cuda.is_available():
+        return "cuda"
+    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
 
-# =========================================================
-# CONFIG
-# =========================================================
+DEVICE = select_device()
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
@@ -21,23 +26,11 @@ ITEM_COLUMNS = [
     "item_id",
 ]
 
+BGE_EMBEDDINGS_PATH = DATA_DIR / "benchmark_bge_embeddings.npy"
 
-BGE_EMBEDDINGS_PATH = (
-    DATA_DIR / "benchmark_bge_embeddings.npy"
-)
+BGE_ITEM_IDS_PATH = DATA_DIR / "benchmark_bge_item_ids.npy"
 
-BGE_ITEM_IDS_PATH = (
-    DATA_DIR / "benchmark_bge_item_ids.npy"
-)
-
-BM25_INDEX_PATH = (
-    DATA_DIR / "benchmark_bm25_index"
-)
-
-
-# =========================================================
-# 1. LOAD BENCHMARK ITEMS
-# =========================================================
+BM25_INDEX_PATH = DATA_DIR / "benchmark_bm25_index"
 
 print("Загружаем benchmark_items...")
 
@@ -52,20 +45,7 @@ items = (
     .reset_index(drop=True)
 )
 
-
-print(
-    "Benchmark items:",
-    len(items)
-)
-
-
-# =========================================================
-# 2. BGE TEXT
-# =========================================================
-
-# ВАЖНО:
-# используем ТОЧНО тот же формат текста,
-# который использовали для train embeddings.
+print( "Benchmark items:",len(items))
 
 titles = (
     items["item_title_raw"]
@@ -86,7 +66,6 @@ descriptions = (
     .str.slice(0, 600)
 )
 
-
 bge_texts = (
     titles
     + ". "
@@ -95,19 +74,12 @@ bge_texts = (
     + descriptions
 ).tolist()
 
-
-# =========================================================
-# 3. BGE EMBEDDINGS
-# =========================================================
-
 if (
     BGE_EMBEDDINGS_PATH.exists()
     and BGE_ITEM_IDS_PATH.exists()
 ):
 
-    print(
-        "\nBenchmark BGE embeddings уже существуют."
-    )
+    print("\nBenchmark BGE embeddings уже существуют.")
 
     embeddings = np.load(
         BGE_EMBEDDINGS_PATH,
@@ -126,27 +98,20 @@ if (
         items["item_id"].to_numpy(),
     )
 
-    print(
-        "Пропускаем BGE."
-    )
+    print("Пропускаем BGE.")
 
 else:
 
-    print(
-        "\nЗагружаем BGE-M3..."
-    )
+    print("\nЗагружаем BGE-M3...")
 
     model = SentenceTransformer(
         "BAAI/bge-m3",
-        device="mps",
+        device=DEVICE,
     )
 
     model.max_seq_length = 128
 
-
-    print(
-        "Считаем embeddings для benchmark items..."
-    )
+    print("Считаем embeddings для benchmark items...")
 
     embeddings = model.encode(
         bge_texts,
@@ -154,7 +119,6 @@ else:
         normalize_embeddings=True,
         show_progress_bar=True,
     )
-
 
     np.save(
         BGE_EMBEDDINGS_PATH,
@@ -166,30 +130,11 @@ else:
         items["item_id"].to_numpy(),
     )
 
+    print("BGE embeddings сохранены:")
 
-    print(
-        "BGE embeddings сохранены:"
-    )
+    print(BGE_EMBEDDINGS_PATH)
 
-    print(
-        BGE_EMBEDDINGS_PATH
-    )
-
-    print(
-        "Shape:",
-        embeddings.shape
-    )
-
-
-# =========================================================
-# 4. BM25 TEXT
-# =========================================================
-
-# Для BM25 ранее у нас лучше работал:
-#
-# title + title + params + description
-#
-# то есть title получает дополнительный вес.
+    print("Shape:", embeddings.shape)
 
 bm25_texts = (
     titles
@@ -201,31 +146,19 @@ bm25_texts = (
     + descriptions
 ).tolist()
 
-
-# =========================================================
-# 5. BM25 INDEX
-# =========================================================
-
 if BM25_INDEX_PATH.exists():
 
-    print(
-        "\nBM25 benchmark index уже существует."
-    )
+    print("\nBM25 benchmark index уже существует.")
 
-    print(
-        "Пропускаем BM25."
-    )
+    print("Пропускаем BM25.")
 
 else:
 
-    print(
-        "\nТокенизируем benchmark corpus..."
-    )
+    print("\nТокенизируем benchmark corpus...")
 
     stemmer = Stemmer.Stemmer(
         "russian"
     )
-
 
     corpus_tokens = bm25s.tokenize(
         bm25_texts,
@@ -233,10 +166,7 @@ else:
         stemmer=stemmer,
     )
 
-
-    print(
-        "Строим BM25 index..."
-    )
+    print("Строим BM25 index...")
 
     retriever = bm25s.BM25()
 
@@ -244,10 +174,7 @@ else:
         corpus_tokens
     )
 
-
-    print(
-        "Сохраняем BM25 index..."
-    )
+    print("Сохраняем BM25 index...")
 
     retriever.save(
         str(
@@ -255,33 +182,15 @@ else:
         )
     )
 
+    print("BM25 index сохранён:")
 
-    print(
-        "BM25 index сохранён:"
-    )
+    print(BM25_INDEX_PATH)
 
-    print(
-        BM25_INDEX_PATH
-    )
+print( "\n" + "=" * 70)
 
+print("BENCHMARK ASSETS READY")
 
-# =========================================================
-# 6. FINAL CHECK
-# =========================================================
-
-print(
-    "\n"
-    + "=" * 70
-)
-
-print(
-    "BENCHMARK ASSETS READY"
-)
-
-print(
-    "=" * 70
-)
-
+print( "=" * 70)
 
 embeddings = np.load(
     BGE_EMBEDDINGS_PATH,
@@ -293,27 +202,13 @@ saved_ids = np.load(
     allow_pickle=True,
 )
 
+print( "Items:",len(items))
 
-print(
-    "Items:",
-    len(items)
-)
+print("BGE shape:", embeddings.shape)
 
-print(
-    "BGE shape:",
-    embeddings.shape
-)
+print( "Item IDs:",len(saved_ids))
 
-print(
-    "Item IDs:",
-    len(saved_ids)
-)
-
-print(
-    "BM25 index:",
-    BM25_INDEX_PATH
-)
-
+print("BM25 index:", BM25_INDEX_PATH)
 
 assert (
     embeddings.shape[0]
@@ -330,8 +225,5 @@ assert np.array_equal(
     items["item_id"].to_numpy(),
 )
 
-
 print()
-print(
-    "Все проверки пройдены."
-)
+print("Все проверки пройдены.")
