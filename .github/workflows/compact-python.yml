@@ -1,0 +1,37 @@
+name: Compact Python formatting
+
+on:
+  push:
+    branches:
+      - style/compact-python
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: style/compact-python
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Black
+        run: pip install black==25.1.0
+      - name: Format Python files
+        run: |
+          black --line-length 110             solution.py             build_train_assets.py             build_benchmark_assets.py             microcat_classifier.py             check_submission.py             experiments/*.py
+      - name: Commit formatting
+        run: |
+          if git diff --quiet; then
+            echo "No formatting changes needed."
+            exit 0
+          fi
+          git config user.name "Davidkaaa33"
+          git config user.email "d.danielian@innopolis.university"
+          git add solution.py build_train_assets.py build_benchmark_assets.py microcat_classifier.py check_submission.py experiments/*.py
+          git commit -m "Compact Python formatting"
+          git push origin HEAD:style/compact-python
