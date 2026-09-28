@@ -10,7 +10,7 @@ assert list(answer.columns) == ["query_id", "answer"]
 assert len(answer) == len(queries)
 assert answer["query_id"].tolist() == queries["query_id"].astype(str).tolist()
 valid_ids = set(items["item_id"].astype(str))
-# Every benchmark query must contain exactly 50 distinct IDs from the item corpus.
+# Здесь проверяю самые неприятные ошибки сабмита: количество IDs, дубли и чужие item_id.
 for row in answer.itertuples(index=False):
     ids = str(row.answer).split()
     assert len(ids) == 50
