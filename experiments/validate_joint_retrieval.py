@@ -112,7 +112,8 @@ N_TUNE = TUNE_END - TUNE_START
 N_CONFIRM = CONFIRM_END - CONFIRM_START
 
 
-# TUNE и CONFIRM специально разные: веса выбираю только на TUNE, CONFIRM не трогаю до самого конца.
+# TUNE и CONFIRM — разные непересекающиеся диапазоны. Все веса выбираются только по TUNE,
+# а CONFIRM используется один раз в конце как независимая проверка переноса.
 print("\nTUNE range:", f"{TUNE_START}:{TUNE_END}")
 print("TUNE groups:", N_TUNE)
 print("CONFIRM range:", f"{CONFIRM_START}:{CONFIRM_END}")
@@ -148,7 +149,8 @@ for mc in list(microcat_to_indices):
     microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
 
 
-# Geo часть здесь уже считается частью baseline и не перетюнивается.
+# Geo retrieval и bonus здесь считаются уже подтверждённой частью baseline.
+# Их веса не меняю, чтобы не смешивать этот эксперимент с повторным geo-tuning.
 print("\nСтроим geo prior...")
 geo_counts = (
     supervision.groupby(["search_location_id", "item_location_id"], dropna=False)
@@ -229,7 +231,8 @@ for i in range(len(sample)):
     predicted_microcats.append(classes[pos[order]].tolist())
 
 
-# Главная проверка этого файла — candidate pools по location × microcat, всё остальное оставляю фиксированным.
+# Основная идея эксперимента — retrieval внутри пересечения location × predicted microcat.
+# Остальные candidate sources фиксирую, чтобы отдельно измерить пользу joint-пулов.
 print("\nСтроим retrieval sources...")
 local_bm25_top = []
 alt_geo_bm25_top = []
@@ -293,7 +296,8 @@ for i in tqdm(range(len(sample))):
             alt_mc_bge_top.append(top_k_indices(scores, alt_joint_indices, K_JOINT_BGE))
 
 
-# Сначала собираю answer3 без новых joint-каналов, чтобы delta считалась честно от текущего baseline.
+# Перед grid воспроизвожу answer3 без joint retrieval. Это базовая точка сравнения,
+# относительно которой считаются все дальнейшие изменения Recall@50.
 print("\nСтроим raw answer3 scores...")
 raw_answer3_scores = []
 for i in tqdm(range(len(sample))):
@@ -438,7 +442,8 @@ def run_grid(kind):
 exact_df = run_grid("EXACT_MC")
 
 
-# После grid беру параметры только по TUNE и уже затем один раз смотрю independent CONFIRM.
+# Лучшие веса выбираю исключительно по TUNE-части. Только после этого запускаю выбранную конфигурацию
+# на independent CONFIRM, не подстраивая параметры под его результат.
 print("\nBEST EXACT×MICROCAT:")
 print(exact_df.head(10).to_string(index=False))
 alt_df = run_grid("ALT_MC")

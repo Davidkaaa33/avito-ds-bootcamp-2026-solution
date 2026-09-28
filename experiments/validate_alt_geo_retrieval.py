@@ -88,7 +88,8 @@ train["item_id"] = train["item_id"].astype(str)
 print("Rows:", len(train))
 
 
-# Делим именно по запросам, чтобы не получить слишком оптимистичный validation из-за одинакового search_query.
+# Split делаю по search_query, а не по отдельным строкам. Иначе одинаковый запрос мог бы оказаться
+# и в supervision, и в holdout, что заметно завысило бы оценку retrieval.
 print("\nСтроим query-disjoint split...")
 splitter = GroupShuffleSplit(n_splits=1, test_size=0.10, random_state=RANDOM_STATE)
 train_idx, val_idx = next(splitter.split(train, groups=train["search_query"]))
@@ -142,7 +143,8 @@ for mc in list(microcat_to_indices):
     microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
 
 
-# Geo prior здесь считаю только на supervision части — holdout в статистику не подмешивается.
+# Geo prior строю только на supervision-части. Holdout специально не использую,
+# чтобы географическая статистика не подсматривала правильные ответы validation.
 print("\nСтроим answer2 geo prior...")
 geo_counts = (
     supervision.groupby(["search_location_id", "item_location_id"], dropna=False)
@@ -190,7 +192,8 @@ for i in tqdm(range(len(sample))):
     local_bge_top.append(top_k_indices(scores, indices, K_LOCAL_BGE))
 
 
-# Отдельно проверяю соседние локации: exact location покрывает не все реальные positive pairs.
+# Проверяю retrieval по альтернативным локациям отдельно от exact location.
+# В train есть заметная доля positive pairs, где item находится не в search_location, поэтому этот канал может вернуть потерянные кандидаты.
 print("\nAlternative-GEO BGE...")
 alt_geo_bge_top = []
 for i in tqdm(range(len(sample))):
@@ -205,7 +208,8 @@ for i in tqdm(range(len(sample))):
     alt_geo_bge_top.append(top_k_indices(alt_scores, alt_indices, K_ALT_GEO_BGE))
 
 
-# BGE и BM25 тестирую вместе, потому что они часто вытаскивают разные релевантные объявления.
+# Для alternative geo оставляю оба источника — BGE и BM25. Они дополняют друг друга:
+# semantic retrieval лучше ловит смысл, а BM25 помогает на точных формулировках и редких терминах.
 print("\nЗагружаем BM25...")
 retriever = bm25s.BM25.load(str(BM25_DIR), load_corpus=False)
 stemmer = Stemmer.Stemmer("russian")
@@ -265,7 +269,8 @@ for i in tqdm(range(len(sample))):
     microcat_bge_top.append(top_k_indices(scores, indices, K_MICROCAT))
 
 
-# Сначала фиксирую baseline, дальше меняю только веса ALT-GEO каналов и сравниваю с ним.
+# Сначала фиксирую текущий answer2 как baseline. В grid меняю только веса ALT-GEO источников,
+# поэтому итоговую delta можно интерпретировать именно как эффект нового retrieval-канала.
 print("\nСтроим answer2 baseline...")
 answer2_scores = []
 answer2_top = []

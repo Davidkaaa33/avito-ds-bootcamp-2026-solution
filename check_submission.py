@@ -10,7 +10,8 @@ assert list(answer.columns) == ["query_id", "answer"]
 assert len(answer) == len(queries)
 assert answer["query_id"].tolist() == queries["query_id"].astype(str).tolist()
 valid_ids = set(items["item_id"].astype(str))
-# Здесь проверяю самые неприятные ошибки сабмита: количество IDs, дубли и чужие item_id.
+# Отдельно проверяю типичные ошибки сабмита: неправильное число кандидатов, повторяющиеся IDs
+# и item_id, которых нет в benchmark corpus. Такие ошибки могли бы молча ухудшить Recall@50.
 for row in answer.itertuples(index=False):
     ids = str(row.answer).split()
     assert len(ids) == 50

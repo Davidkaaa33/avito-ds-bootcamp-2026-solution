@@ -100,7 +100,8 @@ def sorted_top_k(scores, indices, k):
 print("Device:", DEVICE)
 
 
-# Сначала проверяю все подготовленные артефакты. Лучше упасть здесь, чем через пару минут retrieval с непонятной ошибкой.
+# Перед запуском retrieval проверяю наличие всех заранее подготовленных артефактов.
+# Если какого-то файла нет, лучше остановить выполнение сразу, а не получать ошибку уже в середине пайплайна.
 required_paths = [
     TRAIN_PATH,
     QUERIES_PATH,
@@ -118,7 +119,8 @@ for path in required_paths:
         raise FileNotFoundError(f"Не найден required asset: " f"{path}")
 
 
-# Загружаю benchmark и сразу фиксирую порядок item_id — дальше embeddings и индексы должны идти ровно в этом же порядке.
+# Загружаю benchmark queries и items. Порядок item_id здесь принципиален:
+# embeddings и BM25-индексы дальше должны ссылаться на те же позиции в массиве.
 print("\nЗагружаем benchmark queries...")
 queries = pd.read_parquet(QUERIES_PATH).reset_index(drop=True)
 print("Benchmark queries:", queries.shape)
@@ -131,7 +133,8 @@ item_microcats = np.asarray([microcat_key(x) for x in items["item_microcat_id"]]
 benchmark_item_set = set(item_ids.tolist())
 
 
-# Семантическая часть: готовые item embeddings + отдельно кодируем все benchmark queries через BGE-M3.
+# Для semantic retrieval использую заранее рассчитанные embeddings объявлений.
+# Запросы кодирую той же BGE-M3 моделью, после чего similarity считается обычным dot product.
 print("\nЗагружаем benchmark BGE embeddings...")
 item_embeddings = np.load(BGE_EMB_PATH)
 saved_item_ids = np.load(BGE_IDS_PATH, allow_pickle=True)
@@ -150,7 +153,8 @@ query_embeddings = model.encode(
 ).astype(np.float32)
 
 
-# Сначала широкий semantic retrieval по всему корпусу. Это даёт хороший recall, но без учёта географии.
+# Первый источник кандидатов — глобальный BGE retrieval по всему корпусу.
+# Он хорошо поднимает recall, но сам по себе не учитывает географию и тип услуги.
 print("\nGlobal BGE top-500...")
 global_bge_top = []
 for start in tqdm(range(0, len(queries), QUERY_BLOCK_SIZE)):
@@ -164,7 +168,8 @@ for start in tqdm(range(0, len(queries), QUERY_BLOCK_SIZE)):
         global_bge_top.append(idx[order])
 
 
-# Для локальных каналов заранее собираю индексы items по location, чтобы потом не фильтровать весь корпус каждый раз.
+# Отдельно строю индекс item-ов по location. Это позволяет быстро делать local retrieval
+# только внутри нужного города/локации, не проходя каждый раз по всему benchmark corpus.
 print("\nСтроим location index...")
 location_to_indices = {}
 for location, group in items.groupby("item_location_id"):
@@ -181,7 +186,8 @@ for i in tqdm(range(len(queries))):
     local_bge_top.append(sorted_top_k(local_scores, local_indices, K_LOCAL_BGE))
 
 
-# Лексический канал оставляю отдельно от BGE: на коротких сервисных запросах точные совпадения слов всё ещё очень полезны.
+# BM25 использую как независимый lexical-канал. На коротких сервисных запросах
+# точные совпадения слов и параметров часто находят релевантные items, которые BGE может опустить ниже.
 print("\nЗагружаем benchmark BM25...")
 retriever = bm25s.BM25.load(str(BM25_DIR), load_corpus=False)
 stemmer = Stemmer.Stemmer("russian")
@@ -208,7 +214,8 @@ for i in tqdm(range(len(queries))):
     local_bm25_top.append(np.asarray(candidates, dtype=np.int64))
 
 
-# Microcat нужен как дополнительное сужение темы запроса. Это особенно помогает, когда текст похож у соседних услуг.
+# Дополнительно предсказываю microcat запроса. Этот сигнал помогает сузить candidate pool,
+# когда по тексту несколько соседних типов услуг выглядят семантически похожими.
 print("\nЗагружаем microcat classifier...")
 vectorizer = joblib.load(MICROCAT_VECTORIZER_PATH)
 classifier = joblib.load(MICROCAT_CLASSIFIER_PATH)
@@ -232,7 +239,8 @@ for mc in list(microcat_to_indices):
     microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
 
 
-# Из train вытаскиваю только исторические сигналы: exact query, microcat и переходы между локациями.
+# Из train здесь использую только агрегированные исторические сигналы:
+# exact-query history, распределение microcat и статистику переходов между search/item location.
 print("\nЗагружаем train history...")
 train = pd.read_parquet(
     TRAIN_PATH,
@@ -249,7 +257,8 @@ hist_counts = (
     .reset_index(name="count")
     .sort_values(["_norm_query", "count"], ascending=[True, False])
 )
-# Если нормализованный запрос уже встречался, его реальные positive items использую как самый прямой warm-start сигнал.
+# Если такой же нормализованный запрос уже встречался в train, сохраняю его реальные positive items.
+# Для warm queries это самый прямой сигнал релевантности, поэтому такие item_id идут в итоговый список раньше retrieval-кандидатов.
 history_items = hist_counts.groupby("_norm_query")["item_id"].apply(list).to_dict()
 print("Строим historical microcats...")
 mc_counts = (
@@ -264,7 +273,8 @@ for query, group in mc_counts.groupby("_norm_query"):
     history_microcats[query] = group["_mc"].head(5).tolist()
 
 
-# Geo prior считаю по train: для каждой search_location беру наиболее частые item_location кроме точного совпадения.
+# Geo prior оцениваю по train как частоту item_location для каждой search_location.
+# Exact location рассматривается отдельно, а здесь нужны наиболее вероятные альтернативные локации.
 print("\nСтроим GEO PRIOR...")
 geo_counts = (
     train.groupby(["search_location_id", "item_location_id"], dropna=False).size().reset_index(name="count")
@@ -272,7 +282,8 @@ geo_counts = (
 geo_counts["total"] = geo_counts.groupby("search_location_id")["count"].transform("sum")
 geo_counts["prob"] = geo_counts["count"] / geo_counts["total"]
 geo_counts = geo_counts.sort_values(["search_location_id", "count"], ascending=[True, False])
-# Keep only the strongest non-exact locations observed for each search location.
+# Для каждой search_location оставляю только несколько самых частых альтернативных item_location,
+# чтобы geo-сигнал не размывался большим количеством редких переходов.
 geo_map = {}
 for search_location, group in geo_counts.groupby("search_location_id"):
     alternatives = []
@@ -317,7 +328,8 @@ usable_history_queries = sum(q in history_items for q in benchmark_norm_queries)
 print("Queries с usable exact-history:", usable_history_queries)
 
 
-# Для повторяющихся запросов одного exact-history мало, поэтому усредняю embeddings известных positive items и ищу похожие объявления.
+# Для warm query exact-history покрывает только уже виденные item_id, поэтому дополнительно строю history prototype:
+# усредняю embeddings известных positive items и по этому вектору ищу похожие объявления в benchmark.
 print("\nBuilding exact-query history prototypes...")
 train_item_embeddings = np.load(TRAIN_BGE_EMB_PATH, mmap_mode="r")
 train_embedding_ids = np.load(TRAIN_BGE_IDS_PATH, allow_pickle=True)
@@ -382,7 +394,8 @@ del history_count_groups
 gc.collect()
 
 
-# Дополнительные semantic pools строю уже внутри предсказанных microcat и комбинаций location × microcat.
+# После глобальных источников добавляю более точные semantic candidate pools:
+# отдельно внутри предсказанных microcat и внутри пересечений location × microcat.
 print("\nMicrocat BGE candidates...")
 microcat_bge_top = []
 combined_microcat_sets = []
@@ -443,7 +456,8 @@ assert len(exact_mc_bge_top) == len(queries)
 assert len(alt_mc_bge_top) == len(queries)
 
 
-# Финальная часть: объединяю все каналы через weighted RRF, затем добавляю небольшие geo/microcat bonuses и беру top-50.
+# Все candidate sources объединяю через weighted RRF. После этого добавляю небольшие бонусы
+# за exact location, вероятную geo-альтернативу и подходящий microcat, затем выбираю итоговый top-50.
 print("\nФормируем answer.csv...")
 answers = []
 history_inserted_total = 0
@@ -513,7 +527,8 @@ for i in tqdm(range(len(queries))):
 submission = pd.DataFrame({"query_id": queries["query_id"].astype(str), "answer": answers})
 
 
-# Перед сохранением ещё раз проверяю формат: ровно 50 уникальных item_id и только из benchmark corpus.
+# Перед сохранением проверяю формат сабмита: для каждого query должно быть ровно 50 уникальных item_id,
+# причём каждый id обязан существовать в benchmark_items. Это защищает от тихих ошибок при формировании answer.csv.
 print("\nПроверяем answer.csv...")
 assert list(submission.columns) == ["query_id", "answer"]
 assert len(submission) == 2452

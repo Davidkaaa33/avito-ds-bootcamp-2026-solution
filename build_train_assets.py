@@ -32,7 +32,8 @@ def build_texts(items):
     params = items["item_infm_params_text"].fillna("").astype(str)
     descriptions = items["item_description_raw"].fillna("").astype(str).str.slice(0, 600)
     bge_texts = (titles + ". " + params + ". " + descriptions).tolist()
-    # Title дублирую специально: так он получает немного больший вес в BM25, и это лучше работало на validation.
+    # Для BM25 title дублирую намеренно: таким способом даю заголовку больший lexical-вес.
+    # На validation этот вариант стабильно работал лучше, чем одинаковый вес всех текстовых полей.
     bm25_texts = (titles + " " + titles + " " + params + " " + descriptions).tolist()
     return bge_texts, bm25_texts
 
@@ -73,7 +74,8 @@ def ensure_bm25_index(texts):
 
 
 
-# Здесь уже просто последовательная сборка всех train-артефактов.
+# В main последовательно собираю все train-артефакты, которые потом использует solution.py:
+# BGE embeddings, соответствующий порядок item_id и BM25 index.
 def main():
     if not TRAIN_PATH.exists():
         raise FileNotFoundError(f"Missing input file: {TRAIN_PATH}")

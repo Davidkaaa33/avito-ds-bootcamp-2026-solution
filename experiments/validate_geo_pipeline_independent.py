@@ -76,7 +76,8 @@ train["item_id"] = train["item_id"].astype(str)
 print("Rows:", len(train))
 
 
-# Самое важное здесь — не дать одинаковым query попасть по обе стороны split.
+# В этом эксперименте отдельно контролирую query leakage: одинаковый search_query не должен
+# одновременно присутствовать в supervision и holdout.
 print("\nСтроим query-disjoint split...")
 splitter = GroupShuffleSplit(n_splits=1, test_size=0.10, random_state=RANDOM_STATE)
 train_idx, val_idx = next(splitter.split(train, groups=train["search_query"]))
@@ -134,7 +135,8 @@ for mc in list(microcat_to_indices):
     microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
 
 
-# Geo prior строится только по supervision: так проверка ближе к тому, что будет на benchmark.
+# Geo prior считаю только по supervision-части. Это имитирует реальное применение,
+# где для benchmark у нас нет доступа к его релевантным item_id.
 print("\nСтроим geo prior...")
 geo_counts = (
     supervision.groupby(["search_location_id", "item_location_id"], dropna=False)
@@ -163,7 +165,8 @@ query_embeddings = model.encode(
 ).astype(np.float32)
 
 
-# Сначала считаю обычный global retrieval, чтобы geo bonus проверялся как отдельная добавка, а не вместе со всем сразу.
+# Сначала воспроизвожу обычный global retrieval без нового geo bonus.
+# Так можно отдельно оценить, даёт ли географическая поправка прирост поверх уже рабочего baseline.
 print("\nGlobal BGE top-500...")
 global_bge_top = []
 for start in tqdm(range(0, len(sample), 20)):
@@ -211,7 +214,8 @@ for i in tqdm(range(len(sample))):
     local_bm25_top.append(np.asarray(candidates, dtype=np.int64))
 
 
-# Microcat оставляю в baseline, потому что этот сигнал уже был подтверждён раньше.
+# Microcat-канал не перетюниваю: к этому моменту он уже был подтверждён отдельными экспериментами.
+# Здесь хочу изолированно проверить именно geo-компонент.
 print("\nMicrocat classifier...")
 vectorizer = joblib.load(MICROCAT_VECTORIZER_PATH)
 classifier = joblib.load(MICROCAT_CLASSIFIER_PATH)
@@ -241,7 +245,8 @@ for i in tqdm(range(len(sample))):
     microcat_bge_top.append(top_k_indices(candidate_scores, candidate_indices, K_MICROCAT))
 
 
-# После baseline прогоняю сетку geo параметров и смотрю не только mean recall, но и сколько запросов стало хуже.
+# Для каждой geo-конфигурации смотрю не только средний Recall@50, но и число improved/worse queries.
+# Это помогает не выбрать настройку, которая даёт прирост за счёт нескольких редких случаев и портит много остальных.
 print("\nСтроим baseline fusion...")
 base_scores = []
 baseline_top50 = []

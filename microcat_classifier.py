@@ -49,11 +49,13 @@ def evaluate_top_k(classifier, vectorizer, val_df):
 
 
 
-# Обучение небольшое: TF-IDF признаки + LinearSVC, без тяжёлой нейросети.
+# Для microcat использую лёгкую supervised-модель: TF-IDF признаки и LinearSVC.
+# Здесь важнее быстрый и достаточно точный top-k сигнал для retrieval, а не отдельная тяжёлая neural-модель.
 def main():
     print("Loading train...")
     df = pd.read_parquet(TRAIN_PATH, columns=["search_query", "item_microcat_id"])
-    # Деление делаю именно по search_query, чтобы один и тот же текст не оказался одновременно в train и validation.
+    # Train/validation делю группами по search_query. Так один и тот же текст запроса
+    # не попадает в обе части и оценка microcat classifier получается менее завышенной.
     splitter = GroupShuffleSplit(n_splits=1, test_size=0.1, random_state=42)
     train_idx, val_idx = next(splitter.split(df, groups=df["search_query"]))
     train_df = df.iloc[train_idx].copy()
