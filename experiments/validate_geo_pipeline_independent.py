@@ -74,6 +74,9 @@ print("\nЗагружаем train...")
 train = pd.read_parquet(TRAIN_PATH)
 train["item_id"] = train["item_id"].astype(str)
 print("Rows:", len(train))
+
+
+# Самое важное здесь — не дать одинаковым query попасть по обе стороны split.
 print("\nСтроим query-disjoint split...")
 splitter = GroupShuffleSplit(n_splits=1, test_size=0.10, random_state=RANDOM_STATE)
 train_idx, val_idx = next(splitter.split(train, groups=train["search_query"]))
@@ -129,6 +132,9 @@ for idx, mc in enumerate(item_microcats):
     microcat_to_indices[mc].append(idx)
 for mc in list(microcat_to_indices):
     microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
+
+
+# Geo prior строится только по supervision: так проверка ближе к тому, что будет на benchmark.
 print("\nСтроим geo prior...")
 geo_counts = (
     supervision.groupby(["search_location_id", "item_location_id"], dropna=False)
@@ -155,6 +161,9 @@ print("\nКодируем validation queries...")
 query_embeddings = model.encode(
     query_texts, batch_size=64, normalize_embeddings=True, show_progress_bar=True, convert_to_numpy=True
 ).astype(np.float32)
+
+
+# Сначала считаю обычный global retrieval, чтобы geo bonus проверялся как отдельная добавка, а не вместе со всем сразу.
 print("\nGlobal BGE top-500...")
 global_bge_top = []
 for start in tqdm(range(0, len(sample), 20)):
@@ -200,6 +209,9 @@ for i in tqdm(range(len(sample))):
             if len(candidates) >= K_LOCAL_BM25:
                 break
     local_bm25_top.append(np.asarray(candidates, dtype=np.int64))
+
+
+# Microcat оставляю в baseline, потому что этот сигнал уже был подтверждён раньше.
 print("\nMicrocat classifier...")
 vectorizer = joblib.load(MICROCAT_VECTORIZER_PATH)
 classifier = joblib.load(MICROCAT_CLASSIFIER_PATH)
@@ -227,6 +239,9 @@ for i in tqdm(range(len(sample))):
     candidate_indices = np.unique(np.concatenate(pools))
     candidate_scores = item_embeddings[candidate_indices] @ query_embeddings[i]
     microcat_bge_top.append(top_k_indices(candidate_scores, candidate_indices, K_MICROCAT))
+
+
+# После baseline прогоняю сетку geo параметров и смотрю не только mean recall, но и сколько запросов стало хуже.
 print("\nСтроим baseline fusion...")
 base_scores = []
 baseline_top50 = []
