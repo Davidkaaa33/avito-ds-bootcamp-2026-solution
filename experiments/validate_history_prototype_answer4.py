@@ -147,6 +147,9 @@ item_embeddings = np.load(BGE_EMB_PATH).astype(np.float32, copy=False)
 saved_ids = np.load(BGE_IDS_PATH, allow_pickle=True)
 assert np.array_equal(saved_ids.astype(str), item_ids)
 print("Embeddings:", item_embeddings.shape)
+
+
+# Для prototype нужны только warm queries, где есть хотя бы несколько известных positive items.
 print("\nСтроим warm-query universe...")
 query_item_counts = train.groupby(["_norm_query", "item_id"]).size().reset_index(name="count")
 unique_counts = query_item_counts.groupby("_norm_query")["item_id"].nunique()
@@ -170,6 +173,9 @@ query_text_map = (
     .astype(str)
     .to_dict()
 )
+
+
+# Историю и target разделяю детерминированно, чтобы один и тот же запуск давал одинаковую проверку.
 print("\nBuilding history / target split...")
 query_groups = {
     query: group
@@ -234,6 +240,9 @@ for idx, mc in enumerate(item_microcats):
         microcat_to_indices[mc].append(idx)
 for mc in list(microcat_to_indices):
     microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
+
+
+# Остальной answer4 пайплайн оставляю как есть — хочу измерить именно добавку от history prototype.
 print("\nBuilding geo prior...")
 geo_counts = (
     train.groupby(["search_location_id", "item_location_id"], dropna=False).size().reset_index(name="count")
@@ -379,6 +388,9 @@ for i in tqdm(range(len(sample))):
         alt_mc_bge_top.append(top_k_indices(scores, alt_indices, K_JOINT_BGE))
     else:
         alt_mc_bge_top.append(np.array([], dtype=np.int64))
+
+
+# Prototype — это усреднённый embedding известных positive items; по нему ищу похожие кандидаты.
 print("\nHistory prototype retrieval...")
 prototype_vectors = []
 for i in tqdm(range(len(sample))):
@@ -399,6 +411,9 @@ for start in tqdm(range(0, len(sample), 20), desc="Prototype retrieval"):
         idx = positions[row]
         order = np.argsort(scores[row, idx])[::-1]
         prototype_top.append(idx[order].astype(np.int64))
+
+
+# Сохраняю raw scores answer4, а потом поверх них добавляю prototype с разными весами.
 print("\nBuilding answer4 raw scores...")
 raw_answer4_scores = []
 for i in tqdm(range(len(sample))):
