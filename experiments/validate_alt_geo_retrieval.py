@@ -86,6 +86,9 @@ print("\nЗагружаем train...")
 train = pd.read_parquet(TRAIN_PATH)
 train["item_id"] = train["item_id"].astype(str)
 print("Rows:", len(train))
+
+
+# Делим именно по запросам, чтобы не получить слишком оптимистичный validation из-за одинакового search_query.
 print("\nСтроим query-disjoint split...")
 splitter = GroupShuffleSplit(n_splits=1, test_size=0.10, random_state=RANDOM_STATE)
 train_idx, val_idx = next(splitter.split(train, groups=train["search_query"]))
@@ -137,6 +140,9 @@ for idx, mc in enumerate(item_microcats):
         microcat_to_indices[mc].append(idx)
 for mc in list(microcat_to_indices):
     microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
+
+
+# Geo prior здесь считаю только на supervision части — holdout в статистику не подмешивается.
 print("\nСтроим answer2 geo prior...")
 geo_counts = (
     supervision.groupby(["search_location_id", "item_location_id"], dropna=False)
@@ -182,6 +188,9 @@ for i in tqdm(range(len(sample))):
         continue
     scores = item_embeddings[indices] @ query_embeddings[i]
     local_bge_top.append(top_k_indices(scores, indices, K_LOCAL_BGE))
+
+
+# Отдельно проверяю соседние локации: exact location покрывает не все реальные positive pairs.
 print("\nAlternative-GEO BGE...")
 alt_geo_bge_top = []
 for i in tqdm(range(len(sample))):
@@ -194,6 +203,9 @@ for i in tqdm(range(len(sample))):
     alt_indices = np.unique(np.concatenate(pools))
     alt_scores = item_embeddings[alt_indices] @ query_embeddings[i]
     alt_geo_bge_top.append(top_k_indices(alt_scores, alt_indices, K_ALT_GEO_BGE))
+
+
+# BGE и BM25 тестирую вместе, потому что они часто вытаскивают разные релевантные объявления.
 print("\nЗагружаем BM25...")
 retriever = bm25s.BM25.load(str(BM25_DIR), load_corpus=False)
 stemmer = Stemmer.Stemmer("russian")
@@ -251,6 +263,9 @@ for i in tqdm(range(len(sample))):
     indices = np.unique(np.concatenate(pools))
     scores = item_embeddings[indices] @ query_embeddings[i]
     microcat_bge_top.append(top_k_indices(scores, indices, K_MICROCAT))
+
+
+# Сначала фиксирую baseline, дальше меняю только веса ALT-GEO каналов и сравниваю с ним.
 print("\nСтроим answer2 baseline...")
 answer2_scores = []
 answer2_top = []
