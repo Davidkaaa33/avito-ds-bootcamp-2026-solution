@@ -43,7 +43,7 @@ def evaluate_top_k(classifier, vectorizer, val_df):
             truth = row["true_microcats"]
             recalls.append(len(predicted & truth) / len(truth))
             hits.append(bool(predicted & truth))
-        print(f"TOP-{k}")
+        print(f"Первые {k} предсказаний")
         print("Средняя полнота по microcat:", round(np.mean(recalls) * 100, 2), "%")
         print("Запросов хотя бы с одним правильным microcat:", round(np.mean(hits) * 100, 2), "%")
 
