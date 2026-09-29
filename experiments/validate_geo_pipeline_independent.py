@@ -77,7 +77,7 @@ print("Строк:", len(train))
 
 
 # В этом эксперименте отдельно контролирую утечку по запросам: одинаковый search_query не должен
-# одновременно присутствовать в обучающей части и holdout.
+# одновременно присутствовать в обучающей и отложенной частях.
 print("\nСтроим разбиение без пересечения запросов...")
 splitter = GroupShuffleSplit(n_splits=1, test_size=0.10, random_state=RANDOM_STATE)
 train_idx, val_idx = next(splitter.split(train, groups=train["search_query"]))
@@ -86,7 +86,7 @@ holdout = train.iloc[val_idx].copy()
 query_overlap = set(supervision["search_query"]) & set(holdout["search_query"])
 assert len(query_overlap) == 0
 print("Строк в обучающей части:", len(supervision))
-print("Строк в holdout:", len(holdout))
+print("Строк в отложенной части:", len(holdout))
 print("Пересечение запросов:", len(query_overlap))
 QUERY_COLUMNS = [
     "search_query",
@@ -96,12 +96,12 @@ QUERY_COLUMNS = [
     "search_category",
 ]
 val_groups = holdout.groupby(QUERY_COLUMNS, dropna=False)["item_id"].agg(set).reset_index(name="relevant_ids")
-print("Всего групп в holdout:", len(val_groups))
+print("Всего групп в отложенной части:", len(val_groups))
 shuffled_val = val_groups.sample(frac=1, random_state=123).reset_index(drop=True)
 if len(shuffled_val) < 4000:
-    raise ValueError(f"Недостаточно групп в holdout: {len(shuffled_val)}")
+    raise ValueError(f"Недостаточно групп в отложенной части: {len(shuffled_val)}")
 sample = shuffled_val.iloc[1000:4000].copy().reset_index(drop=True)
-print("Групп в независимой validation-части:", len(sample))
+print("Групп в независимой валидационной части:", len(sample))
 ITEM_COLUMNS = [
     "item_id",
     "item_title_raw",
@@ -135,9 +135,9 @@ for mc in list(microcat_to_indices):
     microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
 
 
-# Географический prior считаю только по обучающей части. Это имитирует реальное применение,
+# Географическую априорную статистику считаю только по обучающей части. Это имитирует реальное применение,
 # где для тестового набора у нас нет доступа к его релевантным item_id.
-print("\nСтроим географический prior...")
+print("\nСтроим географическую априорную статистику...")
 geo_counts = (
     supervision.groupby(["search_location_id", "item_location_id"], dropna=False)
     .size()
@@ -154,12 +154,12 @@ for search_location, group in geo_counts.groupby("search_location_id"):
             continue
         values.append((row.item_location_id, float(row.prob)))
     geo_map[search_location] = values
-print("Локаций с географическим prior:", len(geo_map))
+print("Локаций с географической статистикой:", len(geo_map))
 print("\nЗагружаем BGE-M3...")
 model = SentenceTransformer("BAAI/bge-m3", device=DEVICE)
 model.max_seq_length = 128
 query_texts = sample["search_query"].fillna("").astype(str).tolist()
-print("\nКодируем validation-запросы...")
+print("\nКодируем валидационные запросы...")
 query_embeddings = model.encode(
     query_texts, batch_size=64, normalize_embeddings=True, show_progress_bar=True, convert_to_numpy=True
 ).astype(np.float32)
@@ -331,13 +331,13 @@ for top_n in GEO_TOP_NS:
             }
         )
         print(
-            f"topN={top_n:<2} | "
-            f"weight={weight:>6.3f} | "
-            f"Recall={mean_recall * 100:6.2f}% | "
-            f"delta={delta_pp:+.3f} pp | "
-            f"+groups={improved:>4} | "
-            f"-groups={worse:>4} | "
-            f"changed={avg_changed:.2f}"
+            f"число_локаций={top_n:<2} | "
+            f"вес={weight:>6.3f} | "
+            f"Recall@50={mean_recall * 100:6.2f}% | "
+            f"прирост={delta_pp:+.3f} п.п. | "
+            f"+групп={improved:>4} | "
+            f"-групп={worse:>4} | "
+            f"среднее_замен={avg_changed:.2f}"
         )
 result_df = pd.DataFrame(results)
 result_df = result_df.sort_values(
