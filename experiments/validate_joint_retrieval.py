@@ -96,7 +96,7 @@ supervision = train.iloc[train_idx].copy()
 holdout = train.iloc[val_idx].copy()
 assert not (set(supervision["search_query"]) & set(holdout["search_query"]))
 print("Строк в обучающей части:", len(supervision))
-print("Строк в holdout:", len(holdout))
+print("Строк в отложенной части:", len(holdout))
 QUERY_COLUMNS = [
     "search_query",
     "search_location_id",
@@ -151,7 +151,7 @@ for mc in list(microcat_to_indices):
 
 # Географический поиск и бонус здесь считаются уже подтверждённой частью базового варианта.
 # Их веса не меняю, чтобы не смешивать этот эксперимент с повторной настройкой географического компонента.
-print("\nСтроим географический prior...")
+print("\nСтроим географическую априорную статистику...")
 geo_counts = (
     supervision.groupby(["search_location_id", "item_location_id"], dropna=False)
     .size()
@@ -427,11 +427,11 @@ def run_grid(kind):
             print(
                 f"BGE={bge_weight:>4.2f} | "
                 f"BM25={bm25_weight:>4.2f} | "
-                f"Recall={result['mean'] * 100:6.3f}% | "
-                f"delta={delta:+.3f} | "
+                f"Recall@50={result['mean'] * 100:6.3f}% | "
+                f"прирост={delta:+.3f} | "
                 f"+={result['improved']:>3} | "
                 f"-={result['worse']:>3} | "
-                f"changed={avg_changed:.2f}"
+                f"среднее_замен={avg_changed:.2f}"
             )
     df = (
         pd.DataFrame(rows)
@@ -499,7 +499,7 @@ def print_result(name, result, baseline, n):
     delta = (result["mean"] - baseline["mean"]) * 100
     avg_changed = result["changed_items"] / n
     print(f"\n{name}")
-    print(f"Recall: {result['mean'] * 100:.3f}%")
+    print(f"Recall@50: {result['mean'] * 100:.3f}%")
     print(f"Прирост: {delta:+.3f} п.п.")
     print("Улучшилось:", result["improved"])
     print("Ухудшилось:", result["worse"])
