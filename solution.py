@@ -273,9 +273,9 @@ for query, group in mc_counts.groupby("_norm_query"):
     history_microcats[query] = group["_mc"].head(5).tolist()
 
 
-# Географический prior оцениваю по обучающей выборке как частоту item_location для каждой search_location.
+# Географическую априорную вероятность оцениваю по обучающей выборке как частоту item_location для каждой search_location.
 # Точное совпадение локации рассматриваю отдельно, а здесь нужны наиболее вероятные альтернативные локации.
-print("\nСтроим географический prior...")
+print("\nСтроим географическую априорную вероятность...")
 geo_counts = (
     train.groupby(["search_location_id", "item_location_id"], dropna=False).size().reset_index(name="count")
 )
@@ -292,7 +292,7 @@ for search_location, group in geo_counts.groupby("search_location_id"):
             continue
         alternatives.append((row.item_location_id, float(row.prob)))
     geo_map[search_location] = alternatives[:GEO_TOP_N]
-print("Локаций с географическим prior:", len(geo_map))
+print("Локаций с географической статистикой:", len(geo_map))
 print("\nBGE-поиск по альтернативным локациям...")
 alt_geo_bge_top = []
 for i in tqdm(range(len(queries))):
@@ -456,7 +456,7 @@ assert len(exact_mc_bge_top) == len(queries)
 assert len(alt_mc_bge_top) == len(queries)
 
 
-# Все источники кандидатов объединяю через взвешенный RRF. После этого добавляю небольшие бонусы
+# Все источники кандидатов объединяю через взвешенный RRF. После этого добавляю небольшие поправки
 # за точное совпадение локации, вероятную географическую альтернативу и подходящий microcat, затем выбираю итоговые 50 объявлений.
 print("\nФормируем answer.csv...")
 answers = []
@@ -549,7 +549,7 @@ print("\n" + "=" * 80)
 print("ГОТОВО — ИТОГОВЫЙ ОТВЕТ")
 print("=" * 80)
 print("Число альтернативных локаций:", GEO_TOP_N)
-print("Вес географического prior:", GEO_WEIGHT)
+print("Вес географической поправки:", GEO_WEIGHT)
 print("Добавлено item_id из истории:", history_inserted_total)
 print("Применено географических бонусов:", geo_candidate_boosts)
 print("Строк в ответе:", len(submission))
