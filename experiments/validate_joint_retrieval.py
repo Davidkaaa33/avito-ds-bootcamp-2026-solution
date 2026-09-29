@@ -85,18 +85,18 @@ elif torch.cuda.is_available():
     DEVICE = "cuda"
 else:
     DEVICE = "cpu"
-print("Device:", DEVICE)
-print("\nЗагружаем train...")
+print("Устройство:", DEVICE)
+print("\nЗагружаем обучающую выборку...")
 train = pd.read_parquet(TRAIN_PATH)
 train["item_id"] = train["item_id"].astype(str)
-print("Rows:", len(train))
+print("Строк:", len(train))
 splitter = GroupShuffleSplit(n_splits=1, test_size=0.10, random_state=RANDOM_STATE)
 train_idx, val_idx = next(splitter.split(train, groups=train["search_query"]))
 supervision = train.iloc[train_idx].copy()
 holdout = train.iloc[val_idx].copy()
 assert not (set(supervision["search_query"]) & set(holdout["search_query"]))
-print("Supervision rows:", len(supervision))
-print("Holdout rows:", len(holdout))
+print("Строк в обучающей части:", len(supervision))
+print("Строк в holdout:", len(holdout))
 QUERY_COLUMNS = [
     "search_query",
     "search_location_id",
@@ -112,13 +112,13 @@ N_TUNE = TUNE_END - TUNE_START
 N_CONFIRM = CONFIRM_END - CONFIRM_START
 
 
-# TUNE и CONFIRM — разные непересекающиеся диапазоны. Все веса выбираются только по TUNE,
-# а CONFIRM используется один раз в конце как независимая проверка переноса.
-print("\nTUNE range:", f"{TUNE_START}:{TUNE_END}")
-print("TUNE groups:", N_TUNE)
-print("CONFIRM range:", f"{CONFIRM_START}:{CONFIRM_END}")
-print("CONFIRM groups:", N_CONFIRM)
-print("Total evaluation groups:", len(sample))
+# Диапазоны для подбора и независимой проверки не пересекаются. Все веса выбираются только на части для подбора,
+# а независимая проверка используется один раз в конце для оценки переноса.
+print("\nДиапазон для подбора:", f"{TUNE_START}:{TUNE_END}")
+print("Групп для подбора:", N_TUNE)
+print("Диапазон для независимой проверки:", f"{CONFIRM_START}:{CONFIRM_END}")
+print("Групп для независимой проверки:", N_CONFIRM)
+print("Всего групп для оценки:", len(sample))
 ITEM_COLUMNS = [
     "item_id",
     "item_title_raw",
@@ -131,13 +131,13 @@ items = train[ITEM_COLUMNS].drop_duplicates("item_id").reset_index(drop=True)
 item_ids = items["item_id"].astype(str).to_numpy()
 item_locations = items["item_location_id"].to_numpy()
 item_microcats = np.asarray([microcat_key(x) for x in items["item_microcat_id"]], dtype=object)
-print("\nItems:", len(items))
-print("\nЗагружаем item embeddings...")
+print("\nОбъявлений:", len(items))
+print("\nЗагружаем эмбеддинги объявлений...")
 item_embeddings = np.load(BGE_EMB_PATH)
 saved_ids = np.load(BGE_IDS_PATH, allow_pickle=True)
 assert len(item_embeddings) == len(items)
 assert np.array_equal(saved_ids.astype(str), item_ids)
-print("Embeddings:", item_embeddings.shape)
+print("Размер эмбеддингов:", item_embeddings.shape)
 location_to_indices = {}
 for location, group in items.groupby("item_location_id"):
     location_to_indices[location] = group.index.to_numpy(dtype=np.int64)
@@ -149,9 +149,9 @@ for mc in list(microcat_to_indices):
     microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
 
 
-# Geo retrieval и bonus здесь считаются уже подтверждённой частью baseline.
-# Их веса не меняю, чтобы не смешивать этот эксперимент с повторным geo-tuning.
-print("\nСтроим geo prior...")
+# Географический поиск и бонус здесь считаются уже подтверждённой частью базового варианта.
+# Их веса не меняю, чтобы не смешивать этот эксперимент с повторной настройкой географического компонента.
+print("\nСтроим географический prior...")
 geo_counts = (
     supervision.groupby(["search_location_id", "item_location_id"], dropna=False)
     .size()
@@ -172,11 +172,11 @@ print("\nЗагружаем BGE-M3...")
 model = SentenceTransformer("BAAI/bge-m3", device=DEVICE)
 model.max_seq_length = 128
 query_texts = sample["search_query"].fillna("").astype(str).tolist()
-print("\nКодируем 6000 queries...")
+print("\nКодируем 6000 запросов...")
 query_embeddings = model.encode(
     query_texts, batch_size=64, normalize_embeddings=True, show_progress_bar=True, convert_to_numpy=True
 ).astype(np.float32)
-print("\nGlobal BGE...")
+print("\nГлобальный BGE...")
 global_bge_top = []
 for start in tqdm(range(0, len(sample), 20)):
     end = min(start + 20, len(sample))
@@ -186,7 +186,7 @@ for start in tqdm(range(0, len(sample), 20)):
         idx = pos[row]
         order = np.argsort(scores[row, idx])[::-1]
         global_bge_top.append(idx[order])
-print("Exact/ALT geo BGE...")
+print("BGE по точной и альтернативной локации...")
 local_bge_top = []
 alt_geo_bge_top = []
 for i in tqdm(range(len(sample))):
@@ -216,7 +216,7 @@ bm25_query_texts = (
 tokens = bm25s.tokenize(bm25_query_texts, stopwords=None, stemmer=stemmer)
 bm25_wide, _ = retriever.retrieve(tokens, k=K_BM25_WIDE)
 global_bm25_top = bm25_wide[:, :K_GLOBAL]
-print("\nMicrocat classifier...")
+print("\nКлассификатор microcat...")
 mc_vectorizer = joblib.load(MC_VECTORIZER_PATH)
 mc_classifier = joblib.load(MC_CLASSIFIER_PATH)
 X_mc = mc_vectorizer.transform(query_texts)
@@ -231,9 +231,9 @@ for i in range(len(sample)):
     predicted_microcats.append(classes[pos[order]].tolist())
 
 
-# Основная идея эксперимента — retrieval внутри пересечения location × predicted microcat.
-# Остальные candidate sources фиксирую, чтобы отдельно измерить пользу joint-пулов.
-print("\nСтроим retrieval sources...")
+# Основная идея эксперимента — поиск внутри пересечения локация × предсказанный microcat.
+# Остальные источники кандидатов фиксирую, чтобы отдельно измерить пользу совместных пулов.
+print("\nСтроим источники кандидатов...")
 local_bm25_top = []
 alt_geo_bm25_top = []
 microcat_bge_top = []
@@ -296,9 +296,9 @@ for i in tqdm(range(len(sample))):
             alt_mc_bge_top.append(top_k_indices(scores, alt_joint_indices, K_JOINT_BGE))
 
 
-# Перед grid воспроизвожу answer3 без joint retrieval. Это базовая точка сравнения,
+# Перед перебором параметров воспроизвожу answer3 без совместного поиска. Это базовая точка сравнения,
 # относительно которой считаются все дальнейшие изменения Recall@50.
-print("\nСтроим raw answer3 scores...")
+print("\nСтроим исходные баллы answer3...")
 raw_answer3_scores = []
 for i in tqdm(range(len(sample))):
     scores = {}
@@ -376,17 +376,17 @@ def evaluate(
         "changed_queries": changed_queries,
     }
 print("\n" + "=" * 100)
-print("ANSWER3 BASELINE")
+print("БАЗОВЫЙ ВАРИАНТ ANSWER3")
 print("=" * 100)
 tune_base = evaluate(0, N_TUNE)
 confirm_base = evaluate(N_TUNE, N_TUNE + N_CONFIRM)
-print(f"TUNE answer3: " f"{tune_base['mean'] * 100:.3f}%")
-print(f"CONFIRM answer3: " f"{confirm_base['mean'] * 100:.3f}%")
+print(f"Answer3 на подборе: {tune_base['mean'] * 100:.3f}%")
+print(f"Answer3 на независимой проверке: {confirm_base['mean'] * 100:.3f}%")
 
 def run_grid(kind):
     rows = []
     print("\n" + "=" * 110)
-    print(f"TUNE GRID: {kind}")
+    print(f"СЕТКА ПАРАМЕТРОВ: {kind}")
     print("=" * 110)
     for bge_weight in JOINT_BGE_WEIGHTS:
         for bm25_weight in JOINT_BM25_WEIGHTS:
@@ -442,12 +442,12 @@ def run_grid(kind):
 exact_df = run_grid("EXACT_MC")
 
 
-# Лучшие веса выбираю исключительно по TUNE-части. Только после этого запускаю выбранную конфигурацию
-# на independent CONFIRM, не подстраивая параметры под его результат.
-print("\nBEST EXACT×MICROCAT:")
+# Лучшие веса выбираю исключительно на части для подбора. Только после этого запускаю выбранную конфигурацию
+# на независимой проверке, не подстраивая параметры под её результат.
+print("\nЛУЧШИЕ КОНФИГУРАЦИИ: ТОЧНАЯ ЛОКАЦИЯ × MICROCAT")
 print(exact_df.head(10).to_string(index=False))
 alt_df = run_grid("ALT_MC")
-print("\nBEST ALT×MICROCAT:")
+print("\nЛУЧШИЕ КОНФИГУРАЦИИ: АЛЬТЕРНАТИВНАЯ ЛОКАЦИЯ × MICROCAT")
 print(alt_df.head(10).to_string(index=False))
 best_exact = exact_df.iloc[0]
 best_alt = alt_df.iloc[0]
@@ -456,7 +456,7 @@ EX_BM25 = float(best_exact["bm25_weight"])
 ALT_BGE = float(best_alt["bge_weight"])
 ALT_BM25 = float(best_alt["bm25_weight"])
 print("\n" + "=" * 110)
-print("INDEPENDENT CONFIRMATION — NEVER USED FOR WEIGHT SELECTION")
+print("НЕЗАВИСИМАЯ ПРОВЕРКА — НЕ ИСПОЛЬЗОВАЛАСЬ ДЛЯ ВЫБОРА ВЕСОВ")
 print("=" * 110)
 confirm_exact = evaluate(
     N_TUNE,
@@ -499,27 +499,27 @@ def print_result(name, result, baseline, n):
     delta = (result["mean"] - baseline["mean"]) * 100
     avg_changed = result["changed_items"] / n
     print(f"\n{name}")
-    print(f"Recall: " f"{result['mean'] * 100:.3f}%")
-    print(f"Delta: " f"{delta:+.3f} pp")
-    print("Improved:", result["improved"])
-    print("Worse:", result["worse"])
-    print("Changed queries:", result["changed_queries"])
-    print("Avg changed:", f"{avg_changed:.3f}")
-print("\nSELECTED FROM TUNE:")
-print("Exact-MC BGE:", EX_BGE)
-print("Exact-MC BM25:", EX_BM25)
-print("Alt-MC BGE:", ALT_BGE)
-print("Alt-MC BM25:", ALT_BM25)
+    print(f"Recall: {result['mean'] * 100:.3f}%")
+    print(f"Прирост: {delta:+.3f} п.п.")
+    print("Улучшилось:", result["improved"])
+    print("Ухудшилось:", result["worse"])
+    print("Изменённых запросов:", result["changed_queries"])
+    print("Среднее число замен:", f"{avg_changed:.3f}")
+print("\nВЫБРАНО ПО РЕЗУЛЬТАТАМ ПОДБОРА:")
+print("BGE для точной локации × microcat:", EX_BGE)
+print("BM25 для точной локации × microcat:", EX_BM25)
+print("BGE для альтернативной локации × microcat:", ALT_BGE)
+print("BM25 для альтернативной локации × microcat:", ALT_BM25)
 print_result("CONFIRM EXACT×MICROCAT", confirm_exact, confirm_base, N_CONFIRM)
 print_result("CONFIRM ALT×MICROCAT", confirm_alt, confirm_base, N_CONFIRM)
 print_result("TUNE COMBINED", tune_combined, tune_base, N_TUNE)
 print_result("CONFIRM COMBINED", confirm_combined, confirm_base, N_CONFIRM)
 print("\n" + "=" * 110)
-print("FINAL SUMMARY")
+print("ИТОГ")
 print("=" * 110)
-print("Answer3 TUNE:", f"{tune_base['mean'] * 100:.3f}%")
-print("Answer3 CONFIRM:", f"{confirm_base['mean'] * 100:.3f}%")
-print("Combined TUNE:", f"{tune_combined['mean'] * 100:.3f}%")
-print("Combined CONFIRM:", f"{confirm_combined['mean'] * 100:.3f}%")
-print("Combined TUNE delta:", f"{(tune_combined['mean'] - tune_base['mean']) * 100:+.3f} pp")
-print("Combined CONFIRM delta:", f"{(confirm_combined['mean'] - confirm_base['mean']) * 100:+.3f} pp")
+print("Answer3 на подборе:", f"{tune_base['mean'] * 100:.3f}%")
+print("Answer3 на независимой проверке:", f"{confirm_base['mean'] * 100:.3f}%")
+print("Объединённый результат на подборе:", f"{tune_combined['mean'] * 100:.3f}%")
+print("Объединённый результат на независимой проверке:", f"{confirm_combined['mean'] * 100:.3f}%")
+print("Прирост объединённого варианта на подборе:", f"{(tune_combined['mean'] - tune_base['mean']) * 100:+.3f} п.п.")
+print("Прирост объединённого варианта на независимой проверке:", f"{(confirm_combined['mean'] - confirm_base['mean']) * 100:+.3f} п.п.")
