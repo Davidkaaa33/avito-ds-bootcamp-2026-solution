@@ -121,13 +121,13 @@ elif torch.cuda.is_available():
     DEVICE = "cuda"
 else:
     DEVICE = "cpu"
-print("Device:", DEVICE)
-print("\nЗагружаем train...")
+print("Устройство:", DEVICE)
+print("\nЗагружаем обучающую выборку...")
 train = pd.read_parquet(TRAIN_PATH)
 train["item_id"] = train["item_id"].astype(str)
 train["_norm_query"] = [normalize_query(x) for x in train["search_query"]]
 train["_mc"] = [microcat_key(x) for x in train["item_microcat_id"]]
-print("Rows:", len(train))
+print("Строк:", len(train))
 ITEM_COLUMNS = [
     "item_id",
     "item_title_raw",
@@ -141,22 +141,22 @@ item_ids = items["item_id"].astype(str).to_numpy()
 item_locations = items["item_location_id"].to_numpy()
 item_microcats = np.asarray([microcat_key(x) for x in items["item_microcat_id"]], dtype=object)
 item_id_to_index = {item_id: idx for idx, item_id in enumerate(item_ids)}
-print("Unique items:", len(items))
-print("\nЗагружаем embeddings...")
+print("Уникальных объявлений:", len(items))
+print("\nЗагружаем эмбеддинги...")
 item_embeddings = np.load(BGE_EMB_PATH).astype(np.float32, copy=False)
 saved_ids = np.load(BGE_IDS_PATH, allow_pickle=True)
 assert np.array_equal(saved_ids.astype(str), item_ids)
-print("Embeddings:", item_embeddings.shape)
+print("Размер эмбеддингов:", item_embeddings.shape)
 
 
-# History prototype имеет смысл только для warm queries, где из train известны positive items.
-# Поэтому сначала выделяю такие запросы и отдельно формирую для них evaluation universe.
-print("\nСтроим warm-query universe...")
+# Прототип истории имеет смысл только для повторяющихся запросов, где из обучающей выборки известны релевантные объявления.
+# Поэтому сначала выделяю такие запросы и отдельно формирую для них выборку для оценки.
+print("\nСтроим набор повторяющихся запросов...")
 query_item_counts = train.groupby(["_norm_query", "item_id"]).size().reset_index(name="count")
 unique_counts = query_item_counts.groupby("_norm_query")["item_id"].nunique()
 warm_queries = unique_counts[unique_counts >= 2].index.tolist()
-print("Warm queries:", len(warm_queries))
-print("Selecting representative contexts...")
+print("Повторяющихся запросов:", len(warm_queries))
+print("Выбираем репрезентативный контекст для каждого запроса...")
 context_counts = (
     train[train["_norm_query"].isin(warm_queries)]
     .groupby(
@@ -176,9 +176,9 @@ query_text_map = (
 )
 
 
-# Из известных positives часть оставляю как history, а часть использую как target.
-# Разбиение детерминированное, чтобы сравнение весов prototype не зависело от случайного запуска.
-print("\nBuilding history / target split...")
+# Из известных релевантных объявлений часть оставляю как историю, а часть использую как целевые ответы.
+# Разбиение детерминированное, чтобы сравнение весов прототипа не зависело от случайного запуска.
+print("\nСтроим разбиение на историю и целевые объявления...")
 query_groups = {
     query: group
     for query, group in query_item_counts[query_item_counts["_norm_query"].isin(warm_queries)].groupby(
@@ -222,17 +222,17 @@ for query in tqdm(warm_queries):
     )
 warm_df = pd.DataFrame(records)
 warm_df = warm_df.sample(frac=1, random_state=RANDOM_STATE).reset_index(drop=True)
-print("Usable warm queries:", len(warm_df))
+print("Пригодных повторяющихся запросов:", len(warm_df))
 assert len(warm_df) >= CONFIRM_END
 sample = warm_df.iloc[TUNE_START:CONFIRM_END].copy().reset_index(drop=True)
 N_TUNE = TUNE_END - TUNE_START
 N_CONFIRM = CONFIRM_END - CONFIRM_START
 print()
-print("TUNE warm range:", f"{TUNE_START}:{TUNE_END}")
-print("TUNE warm queries:", N_TUNE)
-print("CONFIRM warm range:", f"{CONFIRM_START}:{CONFIRM_END}")
-print("CONFIRM warm queries:", N_CONFIRM)
-print("Median history items:", sample["n_history"].median())
+print("Диапазон для подбора веса:", f"{TUNE_START}:{TUNE_END}")
+print("Запросов для подбора:", N_TUNE)
+print("Диапазон для независимой проверки:", f"{CONFIRM_START}:{CONFIRM_END}")
+print("Запросов для независимой проверки:", N_CONFIRM)
+print("Медианное число объявлений в истории:", sample["n_history"].median())
 location_to_indices = {}
 for location, group in items.groupby("item_location_id"):
     location_to_indices[location] = group.index.to_numpy(dtype=np.int64)
@@ -244,9 +244,9 @@ for mc in list(microcat_to_indices):
     microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
 
 
-# Все остальные компоненты answer4 фиксирую без изменений. Это нужно, чтобы measured delta
-# относилась именно к history prototype, а не к одновременной смене нескольких частей пайплайна.
-print("\nBuilding geo prior...")
+# Все остальные компоненты answer4 фиксирую без изменений. Это нужно, чтобы измеренный прирост
+# относился именно к прототипу истории, а не к одновременной смене нескольких частей пайплайна.
+print("\nСтроим географический prior...")
 geo_counts = (
     train.groupby(["search_location_id", "item_location_id"], dropna=False).size().reset_index(name="count")
 )
@@ -261,14 +261,14 @@ for search_location, group in geo_counts.groupby("search_location_id"):
             continue
         values.append((row.item_location_id, float(row.prob)))
     geo_map[search_location] = values[:GEO_TOP_N]
-print("\nLoading BGE...")
+print("\nЗагружаем BGE...")
 model = SentenceTransformer("BAAI/bge-m3", device=DEVICE)
 model.max_seq_length = 128
 query_texts = sample["search_query"].fillna("").astype(str).tolist()
 query_embeddings = model.encode(
     query_texts, batch_size=64, normalize_embeddings=True, show_progress_bar=True, convert_to_numpy=True
 ).astype(np.float32)
-print("\nGlobal BGE...")
+print("\nГлобальный BGE...")
 global_bge_top = []
 for start in tqdm(range(0, len(sample), 20)):
     end = min(start + 20, len(sample))
@@ -278,7 +278,7 @@ for start in tqdm(range(0, len(sample), 20)):
         idx = positions[row]
         order = np.argsort(scores[row, idx])[::-1]
         global_bge_top.append(idx[order])
-print("Local / ALT BGE...")
+print("BGE по точной и альтернативной локации...")
 local_bge_top = []
 alt_geo_bge_top = []
 for i in tqdm(range(len(sample))):
@@ -308,7 +308,7 @@ bm25_query_text = (
 tokens = bm25s.tokenize(bm25_query_text, stopwords=None, stemmer=stemmer)
 bm25_wide, _ = retriever.retrieve(tokens, k=K_BM25_WIDE)
 global_bm25_top = bm25_wide[:, :K_GLOBAL]
-print("Local / ALT BM25...")
+print("BM25 по точной и альтернативной локации...")
 local_bm25_top = []
 alt_geo_bm25_top = []
 for i in tqdm(range(len(sample))):
@@ -327,7 +327,7 @@ for i in tqdm(range(len(sample))):
             break
     local_bm25_top.append(np.asarray(exact, dtype=np.int64))
     alt_geo_bm25_top.append(np.asarray(alt, dtype=np.int64))
-print("\nMicrocat classifier...")
+print("\nКлассификатор microcat...")
 mc_vectorizer = joblib.load(MC_VEC_PATH)
 mc_classifier = joblib.load(MC_CLF_PATH)
 X = mc_vectorizer.transform(query_texts)
@@ -344,7 +344,7 @@ for i in range(len(sample)):
     history_indices = sample.iloc[i]["history_indices"]
     mcs = [item_microcats[idx] for idx in history_indices if item_microcats[idx] is not None]
     history_microcat_sets.append(set(mcs))
-print("\nMicrocat / joint BGE...")
+print("\nBGE по microcat и локация × microcat...")
 microcat_bge_top = []
 exact_mc_bge_top = []
 alt_mc_bge_top = []
@@ -393,9 +393,9 @@ for i in tqdm(range(len(sample))):
         alt_mc_bge_top.append(np.array([], dtype=np.int64))
 
 
-# Для каждого warm query строю prototype как средний embedding его history items.
-# Затем использую этот вектор как дополнительный semantic query и получаю похожие benchmark candidates.
-print("\nHistory prototype retrieval...")
+# Для каждого повторяющегося запроса строю прототип как средний эмбеддинг его исторических релевантных объявлений.
+# Затем использую этот вектор как дополнительный семантический запрос и получаю похожие кандидаты из тестового корпуса.
+print("\nПоиск по прототипу истории...")
 prototype_vectors = []
 for i in tqdm(range(len(sample))):
     indices = sample.iloc[i]["history_indices"]
@@ -406,7 +406,7 @@ for i in tqdm(range(len(sample))):
     prototype_vectors.append(vector)
 prototype_vectors = np.vstack(prototype_vectors).astype(np.float32)
 prototype_top = []
-for start in tqdm(range(0, len(sample), 20), desc="Prototype retrieval"):
+for start in tqdm(range(0, len(sample), 20), desc="Поиск по прототипу"):
     end = min(start + 20, len(sample))
     scores = prototype_vectors[start:end] @ item_embeddings.T
     k = min(PROTO_TOP_K, len(items))
@@ -417,9 +417,9 @@ for start in tqdm(range(0, len(sample), 20), desc="Prototype retrieval"):
         prototype_top.append(idx[order].astype(np.int64))
 
 
-# Raw fusion scores answer4 считаю один раз, после чего добавляю один и тот же prototype source
-# с разными весами. Так grid получается быстрее и остаётся честным.
-print("\nBuilding answer4 raw scores...")
+# Исходные RRF-баллы answer4 считаю один раз, после чего добавляю один и тот же источник по прототипу
+# с разными весами. Так перебор параметров получается быстрее и остаётся честным.
+print("\nСтроим исходные баллы answer4...")
 raw_answer4_scores = []
 for i in tqdm(range(len(sample))):
     scores = {}
@@ -489,15 +489,15 @@ def evaluate(start, end, prototype_weight, baseline=None):
     }
 print()
 print("=" * 110)
-print("FULL ANSWER4 — WARM BASELINE")
+print("ПОЛНЫЙ ANSWER4 — БАЗОВЫЙ ВАРИАНТ НА ПОВТОРЯЮЩИХСЯ ЗАПРОСАХ")
 print("=" * 110)
 tune_base = evaluate(0, N_TUNE, 0.0)
 confirm_base = evaluate(N_TUNE, N_TUNE + N_CONFIRM, 0.0)
-print("TUNE answer4:", f"{tune_base['mean'] * 100:.3f}%")
-print("CONFIRM answer4:", f"{confirm_base['mean'] * 100:.3f}%")
+print("Answer4 на подборе:", f"{tune_base['mean'] * 100:.3f}%")
+print("Answer4 на независимой проверке:", f"{confirm_base['mean'] * 100:.3f}%")
 print()
 print("=" * 110)
-print("HISTORY PROTOTYPE ON TOP OF ANSWER4 — TUNE")
+print("ПОДБОР ВЕСА ПРОТОТИПА ИСТОРИИ ПОВЕРХ ANSWER4")
 print("=" * 110)
 rows = []
 for weight in PROTO_WEIGHTS:
@@ -531,7 +531,7 @@ result_df = (
 )
 print()
 print("=" * 110)
-print("BEST TUNE CONFIGS")
+print("ЛУЧШИЕ КОНФИГУРАЦИИ НА ПОДБОРЕ")
 print("=" * 110)
 print(
     result_df.to_string(
@@ -561,28 +561,28 @@ for i in range(N_TUNE, N_TUNE + N_CONFIRM):
         proto_hit_500 += 1
 print()
 print("=" * 110)
-print("INDEPENDENT WARM CONFIRMATION")
+print("НЕЗАВИСИМАЯ ПРОВЕРКА НА ПОВТОРЯЮЩИХСЯ ЗАПРОСАХ")
 print("=" * 110)
-print("Selected prototype weight:", BEST_WEIGHT)
+print("Выбранный вес прототипа:", BEST_WEIGHT)
 print()
-print("ANSWER4 warm baseline:", f"{confirm_base['mean'] * 100:.3f}%")
-print("ANSWER4 + prototype:", f"{confirm['mean'] * 100:.3f}%")
-print("CONFIRM delta:", f"{confirm_delta:+.3f} pp")
-print("Improved warm queries:", confirm["improved"])
-print("Worse warm queries:", confirm["worse"])
-print("Changed warm queries:", confirm["changed_queries"])
-print("Avg changed items/query:", f"{confirm['changed_items'] / N_CONFIRM:.3f}")
+print("Базовый answer4:", f"{confirm_base['mean'] * 100:.3f}%")
+print("Answer4 + прототип:", f"{confirm['mean'] * 100:.3f}%")
+print("Прирост на независимой проверке:", f"{confirm_delta:+.3f} п.п.")
+print("Запросов с улучшением:", confirm["improved"])
+print("Запросов с ухудшением:", confirm["worse"])
+print("Изменённых запросов:", confirm["changed_queries"])
+print("Среднее число заменённых item на запрос:", f"{confirm['changed_items'] / N_CONFIRM:.3f}")
 print()
-print("Prototype hit@50:", f"{proto_hit_50 / N_CONFIRM * 100:.2f}%")
-print("Prototype hit@100:", f"{proto_hit_100 / N_CONFIRM * 100:.2f}%")
-print("Prototype hit@500:", f"{proto_hit_500 / N_CONFIRM * 100:.2f}%")
+print("Попадание прототипа в top-50:", f"{proto_hit_50 / N_CONFIRM * 100:.2f}%")
+print("Попадание прототипа в top-100:", f"{proto_hit_100 / N_CONFIRM * 100:.2f}%")
+print("Попадание прототипа в top-500:", f"{proto_hit_500 / N_CONFIRM * 100:.2f}%")
 print()
 print("=" * 110)
-print("FINAL SUMMARY")
+print("ИТОГ")
 print("=" * 110)
 print("Answer4 TUNE:", f"{tune_base['mean'] * 100:.3f}%")
-print("Best TUNE:", f"{best['recall'] * 100:.3f}%")
-print("TUNE delta:", f"{best['delta_pp']:+.3f} pp")
-print("Answer4 CONFIRM:", f"{confirm_base['mean'] * 100:.3f}%")
-print("New CONFIRM:", f"{confirm['mean'] * 100:.3f}%")
-print("CONFIRM delta:", f"{confirm_delta:+.3f} pp")
+print("Лучший результат на подборе:", f"{best['recall'] * 100:.3f}%")
+print("Прирост на подборе:", f"{best['delta_pp']:+.3f} п.п.")
+print("Answer4 на независимой проверке:", f"{confirm_base['mean'] * 100:.3f}%")
+print("Новый результат на независимой проверке:", f"{confirm['mean'] * 100:.3f}%")
+print("Прирост на независимой проверке:", f"{confirm_delta:+.3f} п.п.")
