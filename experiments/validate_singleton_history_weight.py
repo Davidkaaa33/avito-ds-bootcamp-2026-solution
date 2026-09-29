@@ -149,8 +149,8 @@ assert np.array_equal(saved_ids.astype(str), item_ids)
 print("Размер эмбеддингов:", item_embeddings.shape)
 
 
-# Отдельно рассматриваю случаи, где в истории запроса известен только один релевантный item.
-# Такой прототип фактически равен эмбеддингу одного объявления, поэтому его оптимальный вес может отличаться от случая с несколькими item.
+# Отдельно рассматриваю случаи, где в истории запроса известно только одно релевантное объявление.
+# Такой прототип фактически равен эмбеддингу одного объявления, поэтому его оптимальный вес может отличаться от случая с несколькими объявлениями.
 print("\nСтроим набор повторяющихся запросов...")
 query_item_counts = train.groupby(["_norm_query", "item_id"]).size().reset_index(name="count")
 unique_counts = query_item_counts.groupby("_norm_query")["item_id"].nunique()
@@ -243,7 +243,7 @@ for mc in list(microcat_to_indices):
 
 # Все компоненты поиска и объединения answer4 оставляю прежними.
 # В эксперименте меняется только вес прототипа, поэтому прирост можно отнести именно к нему.
-print("\nСтроим географический prior...")
+print("\nСтроим географическую априорную статистику...")
 geo_counts = (
     train.groupby(["search_location_id", "item_location_id"], dropna=False).size().reset_index(name="count")
 )
@@ -390,7 +390,7 @@ for i in tqdm(range(len(sample))):
         alt_mc_bge_top.append(np.array([], dtype=np.int64))
 
 
-# Если в истории только один item, прототип строится по одному историческому объявлению без усреднения.
+# Если в истории только одно объявление, прототип строится по нему без усреднения.
 # Из-за этого сигнал получается более резким, поэтому отдельно проверяю, нужен ли ему больший RRF-вес.
 print("\nПоиск по прототипу истории...")
 prototype_vectors = []
@@ -494,7 +494,7 @@ print("Answer4 на подборе:", f"{tune_base['mean'] * 100:.3f}%")
 print("Answer4 на независимой проверке:", f"{confirm_base['mean'] * 100:.3f}%")
 print()
 print("=" * 110)
-print("ПОДБОР ВЕСА ПРОТОТИПА ДЛЯ ОДНОГО ITEM В ИСТОРИИ")
+print("ПОДБОР ВЕСА ПРОТОТИПА ДЛЯ ОДНОГО ОБЪЯВЛЕНИЯ В ИСТОРИИ")
 print("=" * 110)
 rows = []
 for weight in PROTO_WEIGHTS:
@@ -513,13 +513,13 @@ for weight in PROTO_WEIGHTS:
         }
     )
     print(
-        f"weight={weight:>4.2f} | "
-        f"Recall={result['mean'] * 100:6.3f}% | "
-        f"delta={delta:+.3f} pp | "
+        f"вес={weight:>4.2f} | "
+        f"Recall@50={result['mean'] * 100:6.3f}% | "
+        f"прирост={delta:+.3f} п.п. | "
         f"+={result['improved']:>4} | "
         f"-={result['worse']:>4} | "
-        f"changed_q={result['changed_queries']:>4} | "
-        f"avg_changed={avg_changed:.2f}"
+        f"изменено_запросов={result['changed_queries']:>4} | "
+        f"среднее_замен={avg_changed:.2f}"
     )
 result_df = (
     pd.DataFrame(rows)
@@ -558,7 +558,7 @@ for i in range(N_TUNE, N_TUNE + N_CONFIRM):
         proto_hit_500 += 1
 print()
 print("=" * 110)
-print("НЕЗАВИСИМАЯ ПРОВЕРКА ДЛЯ ОДНОГО ITEM В ИСТОРИИ")
+print("НЕЗАВИСИМАЯ ПРОВЕРКА ДЛЯ ОДНОГО ОБЪЯВЛЕНИЯ В ИСТОРИИ")
 print("=" * 110)
 print("Выбранный вес прототипа:", BEST_WEIGHT)
 print()
@@ -568,16 +568,16 @@ print("Прирост на независимой проверке:", f"{confirm
 print("Запросов с улучшением:", confirm["improved"])
 print("Запросов с ухудшением:", confirm["worse"])
 print("Изменённых запросов:", confirm["changed_queries"])
-print("Среднее число заменённых item на запрос:", f"{confirm['changed_items'] / N_CONFIRM:.3f}")
+print("Среднее число заменённых объявлений на запрос:", f"{confirm['changed_items'] / N_CONFIRM:.3f}")
 print()
-print("Попадание прототипа в top-50:", f"{proto_hit_50 / N_CONFIRM * 100:.2f}%")
-print("Попадание прототипа в top-100:", f"{proto_hit_100 / N_CONFIRM * 100:.2f}%")
-print("Попадание прототипа в top-500:", f"{proto_hit_500 / N_CONFIRM * 100:.2f}%")
+print("Попадание прототипа в первые 50:", f"{proto_hit_50 / N_CONFIRM * 100:.2f}%")
+print("Попадание прототипа в первые 100:", f"{proto_hit_100 / N_CONFIRM * 100:.2f}%")
+print("Попадание прототипа в первые 500:", f"{proto_hit_500 / N_CONFIRM * 100:.2f}%")
 print()
 print("=" * 110)
 print("ИТОГ")
 print("=" * 110)
-print("Answer4 TUNE:", f"{tune_base['mean'] * 100:.3f}%")
+print("Answer4 на подборе:", f"{tune_base['mean'] * 100:.3f}%")
 print("Лучший результат на подборе:", f"{best['recall'] * 100:.3f}%")
 print("Прирост на подборе:", f"{best['delta_pp']:+.3f} п.п.")
 print("Answer4 на независимой проверке:", f"{confirm_base['mean'] * 100:.3f}%")
