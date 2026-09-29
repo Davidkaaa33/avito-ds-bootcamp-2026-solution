@@ -27,7 +27,7 @@ def load_items():
     return items.drop_duplicates("item_id").reset_index(drop=True)
 
 def build_texts(items):
-    """Текст собираем точно так же, как для train, чтобы поиск в обучающем и тестовом корпусах был согласованным."""
+    """Текст собираем точно так же, как для обучающей выборки, чтобы оба корпуса обрабатывались одинаково."""
     titles = items["item_title_raw"].fillna("").astype(str)
     params = items["item_infm_params_text"].fillna("").astype(str)
     descriptions = items["item_description_raw"].fillna("").astype(str).str.slice(0, 600)
@@ -44,11 +44,11 @@ def ensure_bge_assets(items, texts):
         embeddings = np.load(BGE_EMBEDDINGS_PATH, mmap_mode="r")
         saved_ids = np.load(BGE_ITEM_IDS_PATH, allow_pickle=True)
         if embeddings.shape[0] != len(items) or not np.array_equal(saved_ids, item_ids):
-            raise RuntimeError("Существующие BGE-артефакты benchmark не совпадают с порядком тестовых item_id.")
+            raise RuntimeError("Существующие BGE-артефакты тестового корпуса не совпадают с порядком тестовых item_id.")
         print("BGE-артефакты тестового корпуса уже существуют и согласованы.")
         return
     if BGE_EMBEDDINGS_PATH.exists() != BGE_ITEM_IDS_PATH.exists():
-        raise RuntimeError("Найден только один BGE-артефакт benchmark. Удалите неполный набор и запустите скрипт снова.")
+        raise RuntimeError("Найден только один BGE-артефакт тестового корпуса. Удалите неполный набор и запустите скрипт снова.")
     device = select_device()
     print("Строим BGE-эмбеддинги тестового корпуса на устройстве", device)
     model = SentenceTransformer("BAAI/bge-m3", device=device)
