@@ -246,7 +246,7 @@ for mc in list(microcat_to_indices):
 
 # Все остальные компоненты answer4 фиксирую без изменений. Это нужно, чтобы измеренный прирост
 # относился именно к прототипу истории, а не к одновременной смене нескольких частей пайплайна.
-print("\nСтроим географический prior...")
+print("\nСтроим географическую априорную статистику...")
 geo_counts = (
     train.groupby(["search_location_id", "item_location_id"], dropna=False).size().reset_index(name="count")
 )
@@ -516,13 +516,13 @@ for weight in PROTO_WEIGHTS:
         }
     )
     print(
-        f"weight={weight:>4.2f} | "
-        f"Recall={result['mean'] * 100:6.3f}% | "
-        f"delta={delta:+.3f} pp | "
+        f"вес={weight:>4.2f} | "
+        f"Recall@50={result['mean'] * 100:6.3f}% | "
+        f"прирост={delta:+.3f} п.п. | "
         f"+={result['improved']:>4} | "
         f"-={result['worse']:>4} | "
-        f"changed_q={result['changed_queries']:>4} | "
-        f"avg_changed={avg_changed:.2f}"
+        f"изменено_запросов={result['changed_queries']:>4} | "
+        f"среднее_замен={avg_changed:.2f}"
     )
 result_df = (
     pd.DataFrame(rows)
@@ -571,16 +571,16 @@ print("Прирост на независимой проверке:", f"{confirm
 print("Запросов с улучшением:", confirm["improved"])
 print("Запросов с ухудшением:", confirm["worse"])
 print("Изменённых запросов:", confirm["changed_queries"])
-print("Среднее число заменённых item на запрос:", f"{confirm['changed_items'] / N_CONFIRM:.3f}")
+print("Среднее число заменённых объявлений на запрос:", f"{confirm['changed_items'] / N_CONFIRM:.3f}")
 print()
-print("Попадание прототипа в top-50:", f"{proto_hit_50 / N_CONFIRM * 100:.2f}%")
-print("Попадание прототипа в top-100:", f"{proto_hit_100 / N_CONFIRM * 100:.2f}%")
-print("Попадание прототипа в top-500:", f"{proto_hit_500 / N_CONFIRM * 100:.2f}%")
+print("Попадание прототипа в первые 50:", f"{proto_hit_50 / N_CONFIRM * 100:.2f}%")
+print("Попадание прототипа в первые 100:", f"{proto_hit_100 / N_CONFIRM * 100:.2f}%")
+print("Попадание прототипа в первые 500:", f"{proto_hit_500 / N_CONFIRM * 100:.2f}%")
 print()
 print("=" * 110)
 print("ИТОГ")
 print("=" * 110)
-print("Answer4 TUNE:", f"{tune_base['mean'] * 100:.3f}%")
+print("Answer4 на подборе:", f"{tune_base['mean'] * 100:.3f}%")
 print("Лучший результат на подборе:", f"{best['recall'] * 100:.3f}%")
 print("Прирост на подборе:", f"{best['delta_pp']:+.3f} п.п.")
 print("Answer4 на независимой проверке:", f"{confirm_base['mean'] * 100:.3f}%")
