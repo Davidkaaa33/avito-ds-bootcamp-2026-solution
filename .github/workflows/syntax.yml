@@ -1,4 +1,4 @@
-name: Repository checks
+name: Проверки репозитория
 
 on:
   pull_request:
@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Compile Python sources
+      - name: Проверить синтаксис Python
         run: |
           python -m py_compile \
             solution.py \
@@ -24,8 +24,8 @@ jobs:
             microcat_classifier.py \
             check_submission.py \
             experiments/*.py
-      - name: Check whitespace errors
+      - name: Проверить пробелы и формат diff
         run: git diff --check origin/main...HEAD
-      - name: Verify submitted answer is unchanged
+      - name: Проверить неизменность отправленного answer.csv
         run: |
           echo "093072acc21b856f79a982cf67b1d7ffa9f57252387c1b99b4cdea7c66f05cd6  answer.csv" | sha256sum -c -
