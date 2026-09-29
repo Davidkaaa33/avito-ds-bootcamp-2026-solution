@@ -392,4 +392,4 @@ print("Прирост относительно answer2:", f"{best['delta_pp']:+.
 print("Групп с улучшением:", int(best["improved"]))
 print("Групп с ухудшением:", int(best["worse"]))
 print("Изменённых запросов:", int(best["changed_queries"]))
-print("Среднее число заменённых item на запрос:", f"{best['avg_changed']:.3f}")
+print("Среднее число заменённых объявлений на запрос:", f"{best['avg_changed']:.3f}")
