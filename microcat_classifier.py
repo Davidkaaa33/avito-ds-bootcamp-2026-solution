@@ -27,14 +27,14 @@ def build_vectorizer():
     )
 
 def evaluate_top_k(classifier, vectorizer, val_df):
-    """Смотрим покрытие top-k, чтобы понять, сколько microcat имеет смысл использовать при поиске кандидатов."""
+    """Проверяем покрытие среди первых k предсказаний, чтобы выбрать разумное число microcat для поиска кандидатов."""
     val_queries = (
         val_df.groupby("search_query")["item_microcat_id"].agg(set).reset_index(name="true_microcats")
     )
     X_val = vectorizer.transform(val_queries["search_query"])
     scores = classifier.decision_function(X_val)
     classes = classifier.classes_
-    print("Запросов в validation:", len(val_queries))
+    print("Запросов в валидационной части:", len(val_queries))
     for k in [1, 2, 3, 5, 10]:
         top_indices = np.argpartition(scores, -k, axis=1)[:, -k:]
         recalls, hits = [], []
@@ -44,17 +44,17 @@ def evaluate_top_k(classifier, vectorizer, val_df):
             recalls.append(len(predicted & truth) / len(truth))
             hits.append(bool(predicted & truth))
         print(f"TOP-{k}")
-        print("Средний recall по microcat:", round(np.mean(recalls) * 100, 2), "%")
+        print("Средняя полнота по microcat:", round(np.mean(recalls) * 100, 2), "%")
         print("Запросов хотя бы с одним правильным microcat:", round(np.mean(hits) * 100, 2), "%")
 
 
 
 # Для microcat использую лёгкую модель с учителем: TF-IDF-признаки и LinearSVC.
-# Здесь важнее быстрый и достаточно точный top-k сигнал для поиска кандидатов, а не отдельная тяжёлая нейросетевая модель.
+# Здесь важнее быстрый и достаточно точный список первых предсказаний для поиска кандидатов, а не отдельная тяжёлая нейросетевая модель.
 def main():
     print("Загружаем обучающую выборку...")
     df = pd.read_parquet(TRAIN_PATH, columns=["search_query", "item_microcat_id"])
-    # Обучающую и validation-части делю группами по search_query. Так один и тот же текст запроса
+    # Обучающую и валидационную части делю группами по search_query. Так один и тот же текст запроса
     # не попадает в обе части и оценка классификатора microcat получается менее завышенной.
     splitter = GroupShuffleSplit(n_splits=1, test_size=0.1, random_state=42)
     train_idx, val_idx = next(splitter.split(df, groups=df["search_query"]))
