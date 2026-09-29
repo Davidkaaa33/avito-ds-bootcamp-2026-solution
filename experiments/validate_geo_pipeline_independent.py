@@ -69,25 +69,25 @@ elif torch.cuda.is_available():
     DEVICE = "cuda"
 else:
     DEVICE = "cpu"
-print("Device:", DEVICE)
-print("\nЗагружаем train...")
+print("Устройство:", DEVICE)
+print("\nЗагружаем обучающую выборку...")
 train = pd.read_parquet(TRAIN_PATH)
 train["item_id"] = train["item_id"].astype(str)
-print("Rows:", len(train))
+print("Строк:", len(train))
 
 
-# В этом эксперименте отдельно контролирую query leakage: одинаковый search_query не должен
-# одновременно присутствовать в supervision и holdout.
-print("\nСтроим query-disjoint split...")
+# В этом эксперименте отдельно контролирую утечку по запросам: одинаковый search_query не должен
+# одновременно присутствовать в обучающей и отложенной частях.
+print("\nСтроим разбиение без пересечения запросов...")
 splitter = GroupShuffleSplit(n_splits=1, test_size=0.10, random_state=RANDOM_STATE)
 train_idx, val_idx = next(splitter.split(train, groups=train["search_query"]))
 supervision = train.iloc[train_idx].copy()
 holdout = train.iloc[val_idx].copy()
 query_overlap = set(supervision["search_query"]) & set(holdout["search_query"])
 assert len(query_overlap) == 0
-print("Supervision rows:", len(supervision))
-print("Holdout rows:", len(holdout))
-print("Query overlap:", len(query_overlap))
+print("Строк в обучающей части:", len(supervision))
+print("Строк в отложенной части:", len(holdout))
+print("Пересечение запросов:", len(query_overlap))
 QUERY_COLUMNS = [
     "search_query",
     "search_location_id",
@@ -96,12 +96,12 @@ QUERY_COLUMNS = [
     "search_category",
 ]
 val_groups = holdout.groupby(QUERY_COLUMNS, dropna=False)["item_id"].agg(set).reset_index(name="relevant_ids")
-print("All holdout groups:", len(val_groups))
+print("Всего групп в отложенной части:", len(val_groups))
 shuffled_val = val_groups.sample(frac=1, random_state=123).reset_index(drop=True)
 if len(shuffled_val) < 4000:
-    raise ValueError(f"Недостаточно holdout groups: " f"{len(shuffled_val)}")
+    raise ValueError(f"Недостаточно групп в отложенной части: {len(shuffled_val)}")
 sample = shuffled_val.iloc[1000:4000].copy().reset_index(drop=True)
-print("Independent validation groups:", len(sample))
+print("Групп в независимой валидационной части:", len(sample))
 ITEM_COLUMNS = [
     "item_id",
     "item_title_raw",
@@ -114,18 +114,18 @@ items = train[ITEM_COLUMNS].drop_duplicates("item_id").reset_index(drop=True)
 item_ids = items["item_id"].astype(str).to_numpy()
 item_locations = items["item_location_id"].to_numpy()
 item_microcats = np.asarray([microcat_key(x) for x in items["item_microcat_id"]], dtype=object)
-print("Items:", len(items))
-print("\nЗагружаем BGE embeddings...")
+print("Объявлений:", len(items))
+print("\nЗагружаем BGE-эмбеддинги...")
 item_embeddings = np.load(BGE_EMB_PATH)
 saved_item_ids = np.load(BGE_IDS_PATH, allow_pickle=True)
 assert len(item_embeddings) == len(items)
 assert np.array_equal(saved_item_ids.astype(str), item_ids), "Порядок item_id " "не совпадает с embeddings!"
-print("Embeddings:", item_embeddings.shape)
-print("\nСтроим location index...")
+print("Размер эмбеддингов:", item_embeddings.shape)
+print("\nСтроим индекс по локациям...")
 location_to_indices = {}
 for location, group in items.groupby("item_location_id"):
     location_to_indices[location] = group.index.to_numpy(dtype=np.int64)
-print("Строим microcat index...")
+print("Строим индекс по microcat...")
 microcat_to_indices = defaultdict(list)
 for idx, mc in enumerate(item_microcats):
     if mc is None:
@@ -135,9 +135,9 @@ for mc in list(microcat_to_indices):
     microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
 
 
-# Geo prior считаю только по supervision-части. Это имитирует реальное применение,
-# где для benchmark у нас нет доступа к его релевантным item_id.
-print("\nСтроим geo prior...")
+# Географическую априорную статистику считаю только по обучающей части. Это имитирует реальное применение,
+# где для тестового набора у нас нет доступа к его релевантным item_id.
+print("\nСтроим географическую априорную статистику...")
 geo_counts = (
     supervision.groupby(["search_location_id", "item_location_id"], dropna=False)
     .size()
@@ -154,20 +154,20 @@ for search_location, group in geo_counts.groupby("search_location_id"):
             continue
         values.append((row.item_location_id, float(row.prob)))
     geo_map[search_location] = values
-print("Geo search locations:", len(geo_map))
+print("Локаций с географической статистикой:", len(geo_map))
 print("\nЗагружаем BGE-M3...")
 model = SentenceTransformer("BAAI/bge-m3", device=DEVICE)
 model.max_seq_length = 128
 query_texts = sample["search_query"].fillna("").astype(str).tolist()
-print("\nКодируем validation queries...")
+print("\nКодируем валидационные запросы...")
 query_embeddings = model.encode(
     query_texts, batch_size=64, normalize_embeddings=True, show_progress_bar=True, convert_to_numpy=True
 ).astype(np.float32)
 
 
-# Сначала воспроизвожу обычный global retrieval без нового geo bonus.
-# Так можно отдельно оценить, даёт ли географическая поправка прирост поверх уже рабочего baseline.
-print("\nGlobal BGE top-500...")
+# Сначала воспроизвожу обычный глобальный поиск без нового географического бонуса.
+# Так можно отдельно оценить, даёт ли географическая поправка прирост поверх уже рабочего базового варианта.
+print("\nГлобальный BGE: выбираю 500 кандидатов...")
 global_bge_top = []
 for start in tqdm(range(0, len(sample), 20)):
     end = min(start + 20, len(sample))
@@ -178,7 +178,7 @@ for start in tqdm(range(0, len(sample), 20)):
         idx = positions[row]
         order = np.argsort(scores[row, idx])[::-1]
         global_bge_top.append(idx[order])
-print("\nLocal BGE top-500...")
+print("\nЛокальный BGE: выбираю 500 кандидатов...")
 local_bge_top = []
 for i in tqdm(range(len(sample))):
     search_location = sample.iloc[i]["search_location_id"]
@@ -197,10 +197,10 @@ bm25_query_texts = (
     + sample["search_infm_params_text"].fillna("").astype(str)
 ).tolist()
 query_tokens = bm25s.tokenize(bm25_query_texts, stopwords=None, stemmer=stemmer)
-print("BM25 top-10000...")
+print("BM25: выбираю 10000 кандидатов...")
 bm25_wide, _ = retriever.retrieve(query_tokens, k=min(K_BM25_WIDE, len(items)))
 global_bm25_top = bm25_wide[:, :K_GLOBAL]
-print("Local BM25...")
+print("Локальный BM25...")
 local_bm25_top = []
 for i in tqdm(range(len(sample))):
     search_location = sample.iloc[i]["search_location_id"]
@@ -214,9 +214,9 @@ for i in tqdm(range(len(sample))):
     local_bm25_top.append(np.asarray(candidates, dtype=np.int64))
 
 
-# Microcat-канал не перетюниваю: к этому моменту он уже был подтверждён отдельными экспериментами.
-# Здесь хочу изолированно проверить именно geo-компонент.
-print("\nMicrocat classifier...")
+# Канал microcat повторно не настраиваю: к этому моменту он уже был подтверждён отдельными экспериментами.
+# Здесь хочу изолированно проверить именно географический компонент.
+print("\nКлассификатор microcat...")
 vectorizer = joblib.load(MICROCAT_VECTORIZER_PATH)
 classifier = joblib.load(MICROCAT_CLASSIFIER_PATH)
 X = vectorizer.transform(query_texts)
@@ -229,7 +229,7 @@ for i in range(len(sample)):
     pos = mc_positions[i]
     order = np.argsort(decision[i, pos])[::-1]
     predicted_microcats.append(classes[pos[order]].tolist())
-print("Microcat BGE candidates...")
+print("BGE-кандидаты внутри microcat...")
 microcat_bge_top = []
 microcat_sets = []
 for i in tqdm(range(len(sample))):
@@ -245,9 +245,9 @@ for i in tqdm(range(len(sample))):
     microcat_bge_top.append(top_k_indices(candidate_scores, candidate_indices, K_MICROCAT))
 
 
-# Для каждой geo-конфигурации смотрю не только средний Recall@50, но и число improved/worse queries.
+# Для каждой географической конфигурации смотрю не только средний Recall@50, но и число улучшившихся и ухудшившихся запросов.
 # Это помогает не выбрать настройку, которая даёт прирост за счёт нескольких редких случаев и портит много остальных.
-print("\nСтроим baseline fusion...")
+print("\nСтроим объединение базового варианта...")
 base_scores = []
 baseline_top50 = []
 baseline_recalls = []
@@ -275,11 +275,11 @@ for i in tqdm(range(len(sample))):
     base_scores.append(scores)
 baseline_mean = float(np.mean(baseline_recalls))
 print("\n" + "=" * 90)
-print("INDEPENDENT BASELINE")
+print("НЕЗАВИСИМЫЙ БАЗОВЫЙ ВАРИАНТ")
 print("=" * 90)
 print(f"Recall@50: " f"{baseline_mean:.5f} " f"({baseline_mean * 100:.2f}%)")
 print("\n" + "=" * 90)
-print("INDEPENDENT GEO BONUS GRID")
+print("СЕТКА ГЕОГРАФИЧЕСКОГО БОНУСА")
 print("=" * 90)
 results = []
 for top_n in GEO_TOP_NS:
@@ -331,20 +331,20 @@ for top_n in GEO_TOP_NS:
             }
         )
         print(
-            f"topN={top_n:<2} | "
-            f"weight={weight:>6.3f} | "
-            f"Recall={mean_recall * 100:6.2f}% | "
-            f"delta={delta_pp:+.3f} pp | "
-            f"+groups={improved:>4} | "
-            f"-groups={worse:>4} | "
-            f"changed={avg_changed:.2f}"
+            f"число_локаций={top_n:<2} | "
+            f"вес={weight:>6.3f} | "
+            f"Recall@50={mean_recall * 100:6.2f}% | "
+            f"прирост={delta_pp:+.3f} п.п. | "
+            f"+групп={improved:>4} | "
+            f"-групп={worse:>4} | "
+            f"среднее_замен={avg_changed:.2f}"
         )
 result_df = pd.DataFrame(results)
 result_df = result_df.sort_values(
     ["recall", "improved", "worse"], ascending=[False, False, True]
 ).reset_index(drop=True)
 print("\n" + "=" * 90)
-print("BEST INDEPENDENT GEO CONFIGS")
+print("ЛУЧШИЕ НЕЗАВИСИМЫЕ ГЕОГРАФИЧЕСКИЕ КОНФИГУРАЦИИ")
 print("=" * 90)
 print(
     result_df.head(15).to_string(
@@ -353,13 +353,13 @@ print(
 )
 best = result_df.iloc[0]
 print("\n" + "=" * 90)
-print("SUMMARY")
+print("ИТОГ")
 print("=" * 90)
-print("Independent baseline:", f"{baseline_mean * 100:.3f}%")
-print("Best top_n:", int(best["top_n"]))
-print("Best weight:", float(best["weight"]))
-print("Best Recall@50:", f"{best['recall'] * 100:.3f}%")
-print("Delta:", f"{best['delta_pp']:+.3f} pp")
-print("Improved groups:", int(best["improved"]))
-print("Worse groups:", int(best["worse"]))
-print("Avg changed items/query:", f"{best['avg_changed']:.3f}")
+print("Независимый базовый вариант:", f"{baseline_mean * 100:.3f}%")
+print("Лучшее число альтернативных локаций:", int(best["top_n"]))
+print("Лучший вес:", float(best["weight"]))
+print("Лучший Recall@50:", f"{best['recall'] * 100:.3f}%")
+print("Прирост:", f"{best['delta_pp']:+.3f} п.п.")
+print("Групп с улучшением:", int(best["improved"]))
+print("Групп с ухудшением:", int(best["worse"]))
+print("Среднее число заменённых объявлений на запрос:", f"{best['avg_changed']:.3f}")

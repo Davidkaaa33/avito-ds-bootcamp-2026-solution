@@ -1,71 +1,90 @@
 # Avito Data Science Bootcamp 2026
 
-Candidate-generation solution for the services-search task.
+Решение задачи на генерацию кандидатов для поиска услуг.
 
-**Final leaderboard Recall@50: 0.831562**
+**Итоговый Recall@50 на платформе: 0.831562**
 
-## Task
+## Задача
 
-For each search query, return 50 candidate service listings. The target metric is Recall@50, so the retrieval stage is optimized for broad coverage while keeping the final candidate set fixed at 50 items.
+Для каждого поискового запроса нужно вернуть 50 наиболее релевантных объявлений из категории услуг.
 
-## Final approach
+Основная метрика — Recall@50, поэтому основной упор сделан именно на полноту генерации кандидатов: важно как можно чаще включать релевантные объявления в итоговые 50 кандидатов.
 
-The final pipeline combines several complementary signals:
+## Итоговый подход
 
-- BM25 lexical retrieval over title, parameters, and description;
-- BAAI/bge-m3 semantic retrieval;
-- exact-location retrieval;
-- alternative-location retrieval based on historical location transitions;
-- a geographic prior P(item_location | search_location);
-- a query-to-microcategory classifier;
-- joint location × microcategory retrieval;
-- exact-query historical positives;
-- history-prototype retrieval from embeddings of previously relevant items;
-- weighted Reciprocal Rank Fusion plus small location, microcategory, and geo-prior bonuses.
+Финальный пайплайн объединяет несколько независимых источников кандидатов:
 
-The strongest additions were accepted only after they improved a separate confirmation slice.
+- BM25 для лексического поиска по заголовку, параметрам и описанию объявления;
+- BAAI/bge-m3 для семантического поиска;
+- поиск внутри точной локации запроса;
+- поиск по наиболее вероятным альтернативным локациям;
+- географическая априорная вероятность `P(item_location | search_location)`;
+- классификатор запроса по microcat;
+- поиск внутри пересечения `location × microcat`;
+- история точных совпадений запросов из обучающей выборки;
+- прототип истории на основе эмбеддингов ранее релевантных объявлений;
+- взвешенный Reciprocal Rank Fusion для объединения всех источников кандидатов;
+- небольшие дополнительные бонусы за совпадение локации, microcat и географическую априорную вероятность.
 
-## Features and rationale
+Каждый новый источник добавлялся в финальный пайплайн только после проверки на отдельной валидационной части.
 
-The retrieval signals were chosen from the structure of the task and validation results:
+## Использованные признаки и зачем они нужны
 
-- `search_query` — the primary lexical and semantic signal for matching user intent;
-- `search_infm_params_text` — additional service attributes that improve lexical matching;
-- `item_title_raw` — the most precise item-side text signal;
-- `item_description_raw` — broader semantic context for BGE retrieval;
-- `search_location_id` and `item_location_id` — a strong relevance signal for service search, used for exact and alternative geo retrieval;
-- `item_microcat_id` — narrows retrieval to the likely service type and supports joint location × microcategory candidate pools;
-- historical query-item interactions — used for exact-query history and history-prototype retrieval on repeated queries.
+Основные сигналы:
 
-## Validation
+- `search_query` — главный текстовый сигнал запроса, используется и в BM25, и в BGE;
+- `search_infm_params_text` — дополнительные параметры услуги, полезны для точных лексических совпадений;
+- `item_title_raw` — самый точный текстовый признак объявления;
+- `item_description_raw` — дополнительный контекст для семантического поиска;
+- `item_infm_params_text` — структурированная текстовая информация по объявлению;
+- `search_location_id` и `item_location_id` — сильный географический сигнал для категории услуг;
+- `item_microcat_id` — помогает ограничивать поиск тематически близкими объявлениями;
+- исторические пары `query → item` из обучающей выборки — используются для истории точных запросов и прототипа истории.
 
-Most tuning used a query-disjoint split so that validation queries did not appear in the supervision part of the split. Different non-overlapping slices were used for tuning and independent confirmation.
+## Проверка качества
 
-## Error analysis
+Большая часть экспериментов проводилась на разбиении без пересечения запросов: один и тот же `search_query` не попадал одновременно в обучающую и валидационную части.
 
-The main failure modes found during validation were:
+Для важных изменений использовались два непересекающихся диапазона:
 
-- global retrieval missed locally relevant listings, so exact-location and alternative-location retrieval were added;
-- semantic retrieval sometimes returned neighboring service types, so a microcategory classifier and joint location × microcategory retrieval were added;
-- exact-history helped only repeated queries directly, so embeddings of historical positive items were aggregated into query-specific prototypes to retrieve similar benchmark items;
-- some additional reranking ideas improved a tuning slice but did not transfer reliably to an independent holdout, so they were rejected.
+- часть для подбора — для выбора параметров;
+- отдельная проверочная часть — для независимой проверки уже выбранной конфигурации.
 
-Rejected experiments included generic cross-encoder reranking, a fine-tuned reranker, field-specific BM25, conditional geo × microcategory priors, and query-to-query transfer.
+Это уменьшало риск выбрать настройку, которая случайно хорошо сработала только на одном валидационном срезе.
 
-## Repository layout
+## Анализ ошибок и что было изменено
 
-- `solution.py` — final retrieval and fusion pipeline;
-- `build_train_assets.py` — builds train BGE embeddings and BM25 index;
-- `build_benchmark_assets.py` — builds benchmark BGE embeddings and BM25 index;
-- `microcat_classifier.py` — trains the query-to-microcategory classifier;
-- `check_submission.py` — validates submission format;
-- `answer.csv` — exact submitted answer;
-- `experiments/` — selected validation experiments;
-- `data/README.md` — input and generated data layout.
+Во время экспериментов обнаружились несколько типичных проблем:
 
-## Reproduce from scratch
+- глобальный поиск пропускал часть локально релевантных объявлений — поэтому были добавлены поиск по точной локации и поиск по альтернативным локациям;
+- семантический поиск иногда поднимал объявления из соседних типов услуг — для этого добавлены классификатор microcat и поиск внутри `location × microcat`;
+- история точных запросов помогала только для уже встречавшихся запросов и известных item_id — поэтому был добавлен прототип истории, который ищет похожие объявления по эмбеддингам;
+- некоторые дополнительные подходы к переранжированию улучшали часть для подбора, но не подтверждались на независимой проверке — такие изменения в финальное решение не включались.
 
-Python 3.11+ is recommended.
+Отдельно были проверены, но не вошли в финальный пайплайн:
+
+- базовый cross-encoder для переранжирования;
+- дообученная модель для переранжирования;
+- отдельные BM25-индексы по полям;
+- условная географическая априорная вероятность с учётом microcat;
+- перенос кандидатов между похожими запросами.
+
+## Структура репозитория
+
+- `solution.py` — финальный пайплайн генерации кандидатов и их объединения;
+- `build_train_assets.py` — подготовка BGE-эмбеддингов и BM25-индекса для обучающей выборки;
+- `build_benchmark_assets.py` — подготовка BGE-эмбеддингов и BM25-индекса для тестового корпуса;
+- `microcat_classifier.py` — обучение классификатора запроса по microcat;
+- `check_submission.py` — проверка формата итогового файла;
+- `answer.csv` — точный файл, который был отправлен на платформу;
+- `experiments/` — основные валидационные эксперименты;
+- `data/README.md` — описание входных данных и генерируемых артефактов.
+
+## Как воспроизвести решение
+
+Рекомендуется Python 3.11+.
+
+Создать окружение и установить зависимости:
 
 ```bash
 python -m venv .venv
@@ -73,7 +92,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Put the original task files into `data/`:
+Положить исходные файлы задания в папку `data/`:
 
 ```text
 data/train.parquet
@@ -81,7 +100,7 @@ data/benchmark_queries.parquet
 data/benchmark_items.parquet
 ```
 
-Build derived artifacts:
+Подготовить необходимые артефакты:
 
 ```bash
 python build_train_assets.py
@@ -89,24 +108,26 @@ python microcat_classifier.py
 python build_benchmark_assets.py
 ```
 
-Generate and validate the submission:
+Сгенерировать итоговый ответ и проверить его формат:
 
 ```bash
 python solution.py
 python check_submission.py
 ```
 
-The final output is `answer.csv`. The repository also includes the exact submitted `answer.csv` as a reference artifact.
+Результат будет записан в `answer.csv`.
 
-Large task datasets, embeddings, model artifacts, and BM25 indexes are intentionally excluded from Git. The builder scripts reproduce the same feature construction and item ordering used by the final pipeline.
+В репозитории также сохранён точный `answer.csv`, который был отправлен на платформу.
 
-## Final result
+Исходные parquet-файлы, эмбеддинги, модели и BM25-индексы специально не хранятся в Git, чтобы не раздувать репозиторий. Скрипты подготовки воспроизводят те же текстовые признаки и порядок объявлений, которые использует финальный пайплайн.
+
+## Итоговый результат
 
 ```text
 Recall@50: 0.831562
 ```
 
-SHA-256 of the submitted `answer.csv`:
+SHA-256 отправленного `answer.csv`:
 
 ```text
 093072acc21b856f79a982cf67b1d7ffa9f57252387c1b99b4cdea7c66f05cd6

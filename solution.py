@@ -12,7 +12,7 @@ from sentence_transformers import SentenceTransformer
 from tqdm.auto import tqdm
 
 def select_device():
-    """Выбираем самый быстрый доступный backend, сама логика retrieval от этого не меняется."""
+    """Выбираем самое быстрое доступное устройство, логика поиска от этого не меняется."""
     if torch.cuda.is_available():
         return "cuda"
     if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
@@ -63,13 +63,13 @@ BGE_MAX_LENGTH = 128
 QUERY_BLOCK_SIZE = 20
 
 def norm_query(value):
-    """Нормализуем текст запроса одинаково для train и benchmark, чтобы exact-history реально совпадал."""
+    """Одинаково нормализуем текст запроса в обучающей и тестовой выборках, чтобы история точных совпадений работала корректно."""
     if pd.isna(value):
         return ""
     return " ".join(str(value).lower().strip().split())
 
 def microcat_key(value):
-    """Приводим microcat к одному строковому виду, иначе float/int представления могут не совпасть."""
+    """Приводим идентификатор microcat к единому строковому виду, чтобы разные числовые представления не расходились."""
     if pd.isna(value):
         return None
     try:
@@ -81,13 +81,13 @@ def microcat_key(value):
     return str(value)
 
 def add_rrf(fusion_scores, indices, weight):
-    """Добавляем один ranked list в общий RRF score с заданным весом."""
+    """Добавляем один ранжированный список кандидатов в общий RRF-балл с заданным весом."""
     for rank, idx in enumerate(indices, start=1):
         idx = int(idx)
         fusion_scores[idx] = fusion_scores.get(idx, 0.0) + weight / (RRF_K + rank)
 
 def sorted_top_k(scores, indices, k):
-    """Берём top-k без полной сортировки всего массива — на больших candidate pool это заметно дешевле."""
+    """Берём top-k без полной сортировки массива — на больших пулах кандидатов это заметно быстрее."""
     if len(indices) == 0:
         return np.array([], dtype=np.int64)
     k = min(k, len(indices))
@@ -97,10 +97,10 @@ def sorted_top_k(scores, indices, k):
     positions = np.argpartition(scores, -k)[-k:]
     order = np.argsort(scores[positions])[::-1]
     return indices[positions[order]]
-print("Device:", DEVICE)
+print("Устройство:", DEVICE)
 
 
-# Перед запуском retrieval проверяю наличие всех заранее подготовленных артефактов.
+# Перед запуском поиска проверяю наличие всех заранее подготовленных артефактов.
 # Если какого-то файла нет, лучше остановить выполнение сразу, а не получать ошибку уже в середине пайплайна.
 required_paths = [
     TRAIN_PATH,
@@ -116,46 +116,46 @@ required_paths = [
 ]
 for path in required_paths:
     if not path.exists():
-        raise FileNotFoundError(f"Не найден required asset: " f"{path}")
+        raise FileNotFoundError(f"Не найден необходимый артефакт: {path}")
 
 
-# Загружаю benchmark queries и items. Порядок item_id здесь принципиален:
-# embeddings и BM25-индексы дальше должны ссылаться на те же позиции в массиве.
-print("\nЗагружаем benchmark queries...")
+# Загружаю тестовые запросы и объявления. Порядок item_id здесь принципиален:
+# эмбеддинги и BM25-индексы дальше должны ссылаться на те же позиции в массиве.
+print("\nЗагружаем тестовые запросы...")
 queries = pd.read_parquet(QUERIES_PATH).reset_index(drop=True)
-print("Benchmark queries:", queries.shape)
-print("\nЗагружаем benchmark items...")
+print("Форма таблицы запросов:", queries.shape)
+print("\nЗагружаем тестовые объявления...")
 items = pd.read_parquet(ITEMS_PATH).drop_duplicates("item_id").reset_index(drop=True)
-print("Benchmark items:", items.shape)
+print("Форма таблицы объявлений:", items.shape)
 item_ids = items["item_id"].astype(str).to_numpy()
 item_locations = items["item_location_id"].to_numpy()
 item_microcats = np.asarray([microcat_key(x) for x in items["item_microcat_id"]], dtype=object)
 benchmark_item_set = set(item_ids.tolist())
 
 
-# Для semantic retrieval использую заранее рассчитанные embeddings объявлений.
-# Запросы кодирую той же BGE-M3 моделью, после чего similarity считается обычным dot product.
-print("\nЗагружаем benchmark BGE embeddings...")
+# Для семантического поиска использую заранее рассчитанные эмбеддинги объявлений.
+# Запросы кодирую той же моделью BGE-M3, после чего близость считаю обычным скалярным произведением.
+print("\nЗагружаем BGE-эмбеддинги объявлений...")
 item_embeddings = np.load(BGE_EMB_PATH)
 saved_item_ids = np.load(BGE_IDS_PATH, allow_pickle=True)
 assert len(item_embeddings) == len(items)
 assert np.array_equal(saved_item_ids.astype(str), item_ids), (
-    "Порядок benchmark item_id " "не совпадает с embeddings!"
+    "Порядок item_id тестовых объявлений не совпадает с эмбеддингами!"
 )
-print("Embeddings:", item_embeddings.shape)
+print("Размер эмбеддингов:", item_embeddings.shape)
 print("\nЗагружаем BGE-M3...")
 model = SentenceTransformer("BAAI/bge-m3", device=DEVICE)
 model.max_seq_length = BGE_MAX_LENGTH
 query_texts = queries["search_query"].fillna("").astype(str).tolist()
-print("\nКодируем benchmark queries...")
+print("\nКодируем тестовые запросы...")
 query_embeddings = model.encode(
     query_texts, batch_size=64, normalize_embeddings=True, show_progress_bar=True, convert_to_numpy=True
 ).astype(np.float32)
 
 
-# Первый источник кандидатов — глобальный BGE retrieval по всему корпусу.
-# Он хорошо поднимает recall, но сам по себе не учитывает географию и тип услуги.
-print("\nGlobal BGE top-500...")
+# Первый источник кандидатов — глобальный BGE-поиск по всему корпусу.
+# Он хорошо повышает полноту, но сам по себе не учитывает географию и тип услуги.
+print("\nГлобальный BGE: выбираю 500 кандидатов...")
 global_bge_top = []
 for start in tqdm(range(0, len(queries), QUERY_BLOCK_SIZE)):
     end = min(start + QUERY_BLOCK_SIZE, len(queries))
@@ -168,13 +168,13 @@ for start in tqdm(range(0, len(queries), QUERY_BLOCK_SIZE)):
         global_bge_top.append(idx[order])
 
 
-# Отдельно строю индекс item-ов по location. Это позволяет быстро делать local retrieval
-# только внутри нужного города/локации, не проходя каждый раз по всему benchmark corpus.
-print("\nСтроим location index...")
+# Отдельно строю индекс объявлений по локации. Это позволяет быстро выполнять локальный поиск
+# только внутри нужного города или региона, не проходя каждый раз по всему тестовому корпусу.
+print("\nСтроим индекс по локациям...")
 location_to_indices = {}
 for location, group in items.groupby("item_location_id"):
     location_to_indices[location] = group.index.to_numpy(dtype=np.int64)
-print("Local BGE top-500...")
+print("Локальный BGE: выбираю 500 кандидатов...")
 local_bge_top = []
 for i in tqdm(range(len(queries))):
     search_location = queries.iloc[i]["search_location_id"]
@@ -186,9 +186,9 @@ for i in tqdm(range(len(queries))):
     local_bge_top.append(sorted_top_k(local_scores, local_indices, K_LOCAL_BGE))
 
 
-# BM25 использую как независимый lexical-канал. На коротких сервисных запросах
-# точные совпадения слов и параметров часто находят релевантные items, которые BGE может опустить ниже.
-print("\nЗагружаем benchmark BM25...")
+# BM25 использую как независимый лексический канал. На коротких запросах по услугам
+# точные совпадения слов и параметров часто находят релевантные объявления, которые BGE может опустить ниже.
+print("\nЗагружаем BM25-индекс тестовых объявлений...")
 retriever = bm25s.BM25.load(str(BM25_DIR), load_corpus=False)
 stemmer = Stemmer.Stemmer("russian")
 bm25_query_texts = (
@@ -197,10 +197,10 @@ bm25_query_texts = (
     + queries["search_infm_params_text"].fillna("").astype(str)
 ).tolist()
 query_tokens = bm25s.tokenize(bm25_query_texts, stopwords=None, stemmer=stemmer)
-print("BM25 top-10000...")
+print("BM25: выбираю 10000 кандидатов...")
 bm25_wide, _ = retriever.retrieve(query_tokens, k=min(K_BM25_WIDE, len(items)))
 global_bm25_top = bm25_wide[:, :K_GLOBAL]
-print("Local BM25...")
+print("Локальный BM25...")
 local_bm25_top = []
 for i in tqdm(range(len(queries))):
     search_location = queries.iloc[i]["search_location_id"]
@@ -214,9 +214,9 @@ for i in tqdm(range(len(queries))):
     local_bm25_top.append(np.asarray(candidates, dtype=np.int64))
 
 
-# Дополнительно предсказываю microcat запроса. Этот сигнал помогает сузить candidate pool,
+# Дополнительно предсказываю microcat запроса. Этот сигнал помогает сузить пул кандидатов,
 # когда по тексту несколько соседних типов услуг выглядят семантически похожими.
-print("\nЗагружаем microcat classifier...")
+print("\nЗагружаем классификатор microcat...")
 vectorizer = joblib.load(MICROCAT_VECTORIZER_PATH)
 classifier = joblib.load(MICROCAT_CLASSIFIER_PATH)
 query_features = vectorizer.transform(query_texts)
@@ -229,7 +229,7 @@ for i in range(len(queries)):
     pos = mc_positions[i]
     order = np.argsort(decision[i, pos])[::-1]
     predicted_microcats.append(classes[pos[order]].tolist())
-print("Строим microcat index...")
+print("Строим индекс по microcat...")
 microcat_to_indices = defaultdict(list)
 for idx, mc in enumerate(item_microcats):
     if mc is None:
@@ -239,9 +239,9 @@ for mc in list(microcat_to_indices):
     microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
 
 
-# Из train здесь использую только агрегированные исторические сигналы:
-# exact-query history, распределение microcat и статистику переходов между search/item location.
-print("\nЗагружаем train history...")
+# Из обучающей выборки здесь использую только агрегированные исторические сигналы:
+# историю точных запросов, распределение microcat и статистику переходов между локациями запроса и объявления.
+print("\nЗагружаем историю из обучающей выборки...")
 train = pd.read_parquet(
     TRAIN_PATH,
     columns=["search_query", "search_location_id", "item_id", "item_location_id", "item_microcat_id"],
@@ -249,7 +249,7 @@ train = pd.read_parquet(
 train["item_id"] = train["item_id"].astype(str)
 train["_norm_query"] = [norm_query(x) for x in train["search_query"]]
 train["_mc"] = [microcat_key(x) for x in train["item_microcat_id"]]
-print("Строим exact-history items...")
+print("Строим историю точных совпадений запросов...")
 history_in_benchmark = train[train["item_id"].isin(benchmark_item_set)].copy()
 hist_counts = (
     history_in_benchmark.groupby(["_norm_query", "item_id"])
@@ -257,10 +257,10 @@ hist_counts = (
     .reset_index(name="count")
     .sort_values(["_norm_query", "count"], ascending=[True, False])
 )
-# Если такой же нормализованный запрос уже встречался в train, сохраняю его реальные positive items.
-# Для warm queries это самый прямой сигнал релевантности, поэтому такие item_id идут в итоговый список раньше retrieval-кандидатов.
+# Если такой же нормализованный запрос уже встречался в обучающей выборке, сохраняю его реальные релевантные объявления.
+# Для повторяющихся запросов это самый прямой сигнал релевантности, поэтому такие item_id ставлю выше обычных кандидатов поиска.
 history_items = hist_counts.groupby("_norm_query")["item_id"].apply(list).to_dict()
-print("Строим historical microcats...")
+print("Строим исторические microcat...")
 mc_counts = (
     train.dropna(subset=["_mc"])
     .groupby(["_norm_query", "_mc"])
@@ -273,9 +273,9 @@ for query, group in mc_counts.groupby("_norm_query"):
     history_microcats[query] = group["_mc"].head(5).tolist()
 
 
-# Geo prior оцениваю по train как частоту item_location для каждой search_location.
-# Exact location рассматривается отдельно, а здесь нужны наиболее вероятные альтернативные локации.
-print("\nСтроим GEO PRIOR...")
+# Географическую априорную вероятность оцениваю по обучающей выборке как частоту item_location для каждой search_location.
+# Точное совпадение локации рассматриваю отдельно, а здесь нужны наиболее вероятные альтернативные локации.
+print("\nСтроим географическую априорную вероятность...")
 geo_counts = (
     train.groupby(["search_location_id", "item_location_id"], dropna=False).size().reset_index(name="count")
 )
@@ -283,7 +283,7 @@ geo_counts["total"] = geo_counts.groupby("search_location_id")["count"].transfor
 geo_counts["prob"] = geo_counts["count"] / geo_counts["total"]
 geo_counts = geo_counts.sort_values(["search_location_id", "count"], ascending=[True, False])
 # Для каждой search_location оставляю только несколько самых частых альтернативных item_location,
-# чтобы geo-сигнал не размывался большим количеством редких переходов.
+# чтобы географический сигнал не размывался большим количеством редких переходов.
 geo_map = {}
 for search_location, group in geo_counts.groupby("search_location_id"):
     alternatives = []
@@ -292,8 +292,8 @@ for search_location, group in geo_counts.groupby("search_location_id"):
             continue
         alternatives.append((row.item_location_id, float(row.prob)))
     geo_map[search_location] = alternatives[:GEO_TOP_N]
-print("Geo search locations:", len(geo_map))
-print("\nAlternative-GEO BGE retrieval...")
+print("Локаций с географической статистикой:", len(geo_map))
+print("\nBGE-поиск по альтернативным локациям...")
 alt_geo_bge_top = []
 for i in tqdm(range(len(queries))):
     search_location = queries.iloc[i]["search_location_id"]
@@ -305,7 +305,7 @@ for i in tqdm(range(len(queries))):
     candidate_indices = np.unique(np.concatenate(pools))
     candidate_scores = item_embeddings[candidate_indices] @ query_embeddings[i]
     alt_geo_bge_top.append(sorted_top_k(candidate_scores, candidate_indices, K_ALT_GEO_BGE))
-print("Alternative-GEO BM25 retrieval...")
+print("BM25-поиск по альтернативным локациям...")
 alt_geo_bm25_top = []
 for i in tqdm(range(len(queries))):
     search_location = queries.iloc[i]["search_location_id"]
@@ -321,16 +321,16 @@ for i in tqdm(range(len(queries))):
     alt_geo_bm25_top.append(np.asarray(candidates, dtype=np.int64))
 alt_bge_nonempty = sum(len(x) > 0 for x in alt_geo_bge_top)
 alt_bm25_nonempty = sum(len(x) > 0 for x in alt_geo_bm25_top)
-print("ALT BGE non-empty queries:", alt_bge_nonempty, "/", len(queries))
-print("ALT BM25 non-empty queries:", alt_bm25_nonempty, "/", len(queries))
+print("Запросов с BGE-кандидатами из альтернативных локаций:", alt_bge_nonempty, "/", len(queries))
+print("Запросов с BM25-кандидатами из альтернативных локаций:", alt_bm25_nonempty, "/", len(queries))
 benchmark_norm_queries = [norm_query(x) for x in queries["search_query"]]
 usable_history_queries = sum(q in history_items for q in benchmark_norm_queries)
-print("Queries с usable exact-history:", usable_history_queries)
+print("Запросов с доступной историей точного совпадения:", usable_history_queries)
 
 
-# Для warm query exact-history покрывает только уже виденные item_id, поэтому дополнительно строю history prototype:
-# усредняю embeddings известных positive items и по этому вектору ищу похожие объявления в benchmark.
-print("\nBuilding exact-query history prototypes...")
+# Для повторяющегося запроса история точных совпадений покрывает только уже виденные item_id, поэтому дополнительно строю прототип истории:
+# усредняю эмбеддинги известных релевантных объявлений и по этому вектору ищу похожие объявления в тестовом корпусе.
+print("\nСтроим прототипы истории для точных запросов...")
 train_item_embeddings = np.load(TRAIN_BGE_EMB_PATH, mmap_mode="r")
 train_embedding_ids = np.load(TRAIN_BGE_IDS_PATH, allow_pickle=True)
 assert len(train_item_embeddings) == len(train_embedding_ids)
@@ -369,11 +369,11 @@ for i, nq in enumerate(benchmark_norm_queries):
     prototype /= norm
     warm_query_positions.append(i)
     warm_prototype_vectors.append(prototype)
-print("Warm benchmark queries with prototype:", len(warm_query_positions), "/", len(queries))
+print("Повторяющихся запросов с прототипом:", len(warm_query_positions), "/", len(queries))
 history_proto_top = [np.array([], dtype=np.int64) for _ in range(len(queries))]
 if warm_prototype_vectors:
     warm_prototype_vectors = np.vstack(warm_prototype_vectors).astype(np.float32)
-    print("History prototype retrieval...")
+    print("Поиск по прототипам истории...")
     PROTO_BLOCK_SIZE = 20
     for start in tqdm(range(0, len(warm_query_positions), PROTO_BLOCK_SIZE)):
         end = min(start + PROTO_BLOCK_SIZE, len(warm_query_positions))
@@ -386,7 +386,7 @@ if warm_prototype_vectors:
             benchmark_query_idx = warm_query_positions[start + row]
             history_proto_top[benchmark_query_idx] = candidate_indices[order].astype(np.int64)
 proto_nonempty = sum(len(x) > 0 for x in history_proto_top)
-print("History prototype non-empty:", proto_nonempty, "/", len(queries))
+print("Запросов с непустым прототипом истории:", proto_nonempty, "/", len(queries))
 del train_item_id_to_embedding_idx
 del train_embedding_ids
 del full_history_counts
@@ -394,9 +394,9 @@ del history_count_groups
 gc.collect()
 
 
-# После глобальных источников добавляю более точные semantic candidate pools:
-# отдельно внутри предсказанных microcat и внутри пересечений location × microcat.
-print("\nMicrocat BGE candidates...")
+# После глобальных источников добавляю более точные семантические пулы кандидатов:
+# отдельно внутри предсказанных microcat и внутри пересечений локация × microcat.
+print("\nBGE-кандидаты внутри microcat...")
 microcat_bge_top = []
 combined_microcat_sets = []
 for i in tqdm(range(len(queries))):
@@ -418,7 +418,7 @@ for i in tqdm(range(len(queries))):
     candidate_indices = np.unique(np.concatenate(pools))
     candidate_scores = item_embeddings[candidate_indices] @ query_embeddings[i]
     microcat_bge_top.append(sorted_top_k(candidate_scores, candidate_indices, K_MICROCAT))
-print("\nExact/ALT location × microcat BGE candidates...")
+print("\nBGE-кандидаты внутри точной и альтернативной локации × microcat...")
 exact_mc_bge_top = []
 alt_mc_bge_top = []
 for i in tqdm(range(len(queries))):
@@ -450,14 +450,14 @@ for i in tqdm(range(len(queries))):
         alt_mc_bge_top.append(sorted_top_k(alt_scores, alt_indices, K_JOINT_BGE))
 exact_mc_nonempty = sum(len(x) > 0 for x in exact_mc_bge_top)
 alt_mc_nonempty = sum(len(x) > 0 for x in alt_mc_bge_top)
-print("Exact-MC non-empty:", exact_mc_nonempty, "/", len(queries))
-print("ALT-MC non-empty:", alt_mc_nonempty, "/", len(queries))
+print("Запросов с кандидатами точная локация × microcat:", exact_mc_nonempty, "/", len(queries))
+print("Запросов с кандидатами альтернативная локация × microcat:", alt_mc_nonempty, "/", len(queries))
 assert len(exact_mc_bge_top) == len(queries)
 assert len(alt_mc_bge_top) == len(queries)
 
 
-# Все candidate sources объединяю через weighted RRF. После этого добавляю небольшие бонусы
-# за exact location, вероятную geo-альтернативу и подходящий microcat, затем выбираю итоговый top-50.
+# Все источники кандидатов объединяю через взвешенный RRF. После этого добавляю небольшие поправки
+# за точное совпадение локации, вероятную географическую альтернативу и подходящий microcat, затем выбираю итоговые 50 объявлений.
 print("\nФормируем answer.csv...")
 answers = []
 history_inserted_total = 0
@@ -527,8 +527,8 @@ for i in tqdm(range(len(queries))):
 submission = pd.DataFrame({"query_id": queries["query_id"].astype(str), "answer": answers})
 
 
-# Перед сохранением проверяю формат сабмита: для каждого query должно быть ровно 50 уникальных item_id,
-# причём каждый id обязан существовать в benchmark_items. Это защищает от тихих ошибок при формировании answer.csv.
+# Перед сохранением проверяю формат ответа: для каждого запроса должно быть ровно 50 уникальных item_id,
+# причём каждый id обязан существовать в benchmark_items. Это защищает от незаметных ошибок при формировании answer.csv.
 print("\nПроверяем answer.csv...")
 assert list(submission.columns) == ["query_id", "answer"]
 assert len(submission) == 2452
@@ -546,26 +546,26 @@ for row_idx, answer in enumerate(submission["answer"]):
         assert hex_pattern.fullmatch(item_id), f"Bad item_id: " f"{item_id}"
 submission.to_csv(OUTPUT_PATH, index=False)
 print("\n" + "=" * 80)
-print("ГОТОВО — FINAL ANSWER")
+print("ГОТОВО — ИТОГОВЫЙ ОТВЕТ")
 print("=" * 80)
-print("Geo top-N:", GEO_TOP_N)
-print("Geo weight:", GEO_WEIGHT)
-print("Historical IDs inserted:", history_inserted_total)
-print("Geo candidate boosts:", geo_candidate_boosts)
-print("Rows:", len(submission))
-print("Min items/query:", min(lengths))
-print("Max items/query:", max(lengths))
-print("Output:", OUTPUT_PATH)
-print("Size:", OUTPUT_PATH.stat().st_size, "bytes")
+print("Число альтернативных локаций:", GEO_TOP_N)
+print("Вес географической поправки:", GEO_WEIGHT)
+print("Добавлено item_id из истории:", history_inserted_total)
+print("Применено географических бонусов:", geo_candidate_boosts)
+print("Строк в ответе:", len(submission))
+print("Минимум кандидатов на запрос:", min(lengths))
+print("Максимум кандидатов на запрос:", max(lengths))
+print("Файл результата:", OUTPUT_PATH)
+print("Размер файла:", OUTPUT_PATH.stat().st_size, "байт")
 print("\nПервые 2 строки:")
 print(submission.head(2).to_string(index=False))
-print("ALT GEO BGE weight:", ALT_GEO_BGE_WEIGHT)
-print("ALT GEO BM25 weight:", ALT_GEO_BM25_WEIGHT)
-print("Exact-MC BGE weight:", EXACT_MC_BGE_WEIGHT)
-print("ALT-MC BGE weight:", ALT_MC_BGE_WEIGHT)
-print("History prototype default weight:", HISTORY_PROTO_WEIGHT_DEFAULT)
-print("History prototype singleton weight:", HISTORY_PROTO_WEIGHT_SINGLETON)
-print("History prototype singleton queries:", int(np.sum(history_proto_hist_len == 1)))
-print("History prototype multi-history queries:", int(np.sum(history_proto_hist_len >= 2)))
-print("History prototype top-K:", HISTORY_PROTO_TOP_K)
-print("History prototype queries:", proto_nonempty)
+print("Вес BGE по альтернативным локациям:", ALT_GEO_BGE_WEIGHT)
+print("Вес BM25 по альтернативным локациям:", ALT_GEO_BM25_WEIGHT)
+print("Вес BGE для точной локации × microcat:", EXACT_MC_BGE_WEIGHT)
+print("Вес BGE для альтернативной локации × microcat:", ALT_MC_BGE_WEIGHT)
+print("Обычный вес прототипа истории:", HISTORY_PROTO_WEIGHT_DEFAULT)
+print("Вес прототипа истории для одного item:", HISTORY_PROTO_WEIGHT_SINGLETON)
+print("Запросов с одним item в истории:", int(np.sum(history_proto_hist_len == 1)))
+print("Запросов с несколькими item в истории:", int(np.sum(history_proto_hist_len >= 2)))
+print("Размер выдачи по прототипу истории:", HISTORY_PROTO_TOP_K)
+print("Запросов с прототипом истории:", proto_nonempty)

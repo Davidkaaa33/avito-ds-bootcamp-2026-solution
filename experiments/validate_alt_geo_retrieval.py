@@ -81,23 +81,23 @@ elif torch.cuda.is_available():
     DEVICE = "cuda"
 else:
     DEVICE = "cpu"
-print("Device:", DEVICE)
-print("\nЗагружаем train...")
+print("Устройство:", DEVICE)
+print("\nЗагружаем обучающую выборку...")
 train = pd.read_parquet(TRAIN_PATH)
 train["item_id"] = train["item_id"].astype(str)
-print("Rows:", len(train))
+print("Строк:", len(train))
 
 
-# Split делаю по search_query, а не по отдельным строкам. Иначе одинаковый запрос мог бы оказаться
-# и в supervision, и в holdout, что заметно завысило бы оценку retrieval.
-print("\nСтроим query-disjoint split...")
+# Разбиение делаю по search_query, а не по отдельным строкам. Иначе одинаковый запрос мог бы оказаться
+# и в обучающей, и в отложенной части, что заметно завысило бы оценку поиска кандидатов.
+print("\nСтроим разбиение без пересечения запросов...")
 splitter = GroupShuffleSplit(n_splits=1, test_size=0.10, random_state=RANDOM_STATE)
 train_idx, val_idx = next(splitter.split(train, groups=train["search_query"]))
 supervision = train.iloc[train_idx].copy()
 holdout = train.iloc[val_idx].copy()
 assert not (set(supervision["search_query"]) & set(holdout["search_query"]))
-print("Supervision rows:", len(supervision))
-print("Holdout rows:", len(holdout))
+print("Строк в обучающей части:", len(supervision))
+print("Строк в отложенной части:", len(holdout))
 QUERY_COLUMNS = [
     "search_query",
     "search_location_id",
@@ -109,8 +109,8 @@ val_groups = holdout.groupby(QUERY_COLUMNS, dropna=False)["item_id"].agg(set).re
 shuffled = val_groups.sample(frac=1, random_state=123).reset_index(drop=True)
 assert len(shuffled) >= FRESH_END
 sample = shuffled.iloc[FRESH_START:FRESH_END].copy().reset_index(drop=True)
-print("Fresh validation range:", f"{FRESH_START}:{FRESH_END}")
-print("Fresh validation groups:", len(sample))
+print("Диапазон свежей валидационной части:", f"{FRESH_START}:{FRESH_END}")
+print("Групп в свежей валидационной части:", len(sample))
 ITEM_COLUMNS = [
     "item_id",
     "item_title_raw",
@@ -123,18 +123,18 @@ items = train[ITEM_COLUMNS].drop_duplicates("item_id").reset_index(drop=True)
 item_ids = items["item_id"].astype(str).to_numpy()
 item_locations = items["item_location_id"].to_numpy()
 item_microcats = np.asarray([microcat_key(x) for x in items["item_microcat_id"]], dtype=object)
-print("Items:", len(items))
-print("\nЗагружаем BGE embeddings...")
+print("Объявлений:", len(items))
+print("\nЗагружаем BGE-эмбеддинги...")
 item_embeddings = np.load(BGE_EMB_PATH)
 saved_ids = np.load(BGE_IDS_PATH, allow_pickle=True)
 assert len(item_embeddings) == len(items)
 assert np.array_equal(saved_ids.astype(str), item_ids)
-print("Embeddings:", item_embeddings.shape)
-print("\nСтроим location index...")
+print("Размер эмбеддингов:", item_embeddings.shape)
+print("\nСтроим индекс по локациям...")
 location_to_indices = {}
 for location, group in items.groupby("item_location_id"):
     location_to_indices[location] = group.index.to_numpy(dtype=np.int64)
-print("Строим microcat index...")
+print("Строим индекс по microcat...")
 microcat_to_indices = defaultdict(list)
 for idx, mc in enumerate(item_microcats):
     if mc is not None:
@@ -143,9 +143,9 @@ for mc in list(microcat_to_indices):
     microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
 
 
-# Geo prior строю только на supervision-части. Holdout специально не использую,
-# чтобы географическая статистика не подсматривала правильные ответы validation.
-print("\nСтроим answer2 geo prior...")
+# Географическую априорную статистику строю только на обучающей части. Отложенную часть специально не использую,
+# чтобы географическая статистика не подсматривала правильные ответы валидационной части.
+print("\nСтроим географическую априорную статистику для answer2...")
 geo_counts = (
     supervision.groupby(["search_location_id", "item_location_id"], dropna=False)
     .size()
@@ -166,11 +166,11 @@ print("\nЗагружаем BGE-M3...")
 model = SentenceTransformer("BAAI/bge-m3", device=DEVICE)
 model.max_seq_length = 128
 query_texts = sample["search_query"].fillna("").astype(str).tolist()
-print("\nКодируем queries...")
+print("\nКодируем запросы...")
 query_embeddings = model.encode(
     query_texts, batch_size=64, normalize_embeddings=True, show_progress_bar=True, convert_to_numpy=True
 ).astype(np.float32)
-print("\nGlobal BGE top-500...")
+print("\nГлобальный BGE: выбираю 500 кандидатов...")
 global_bge_top = []
 for start in tqdm(range(0, len(sample), 20)):
     end = min(start + 20, len(sample))
@@ -180,7 +180,7 @@ for start in tqdm(range(0, len(sample), 20)):
         idx = pos[row]
         order = np.argsort(scores[row, idx])[::-1]
         global_bge_top.append(idx[order])
-print("Exact-location BGE...")
+print("BGE по точной локации...")
 local_bge_top = []
 for i in tqdm(range(len(sample))):
     search_location = sample.iloc[i]["search_location_id"]
@@ -192,9 +192,9 @@ for i in tqdm(range(len(sample))):
     local_bge_top.append(top_k_indices(scores, indices, K_LOCAL_BGE))
 
 
-# Проверяю retrieval по альтернативным локациям отдельно от exact location.
-# В train есть заметная доля positive pairs, где item находится не в search_location, поэтому этот канал может вернуть потерянные кандидаты.
-print("\nAlternative-GEO BGE...")
+# Проверяю поиск по альтернативным локациям отдельно от точного совпадения локации.
+# В обучающей выборке есть заметная доля релевантных пар, где объявление находится не в search_location, поэтому этот канал может вернуть потерянные кандидаты.
+print("\nBGE по альтернативным локациям...")
 alt_geo_bge_top = []
 for i in tqdm(range(len(sample))):
     search_location = sample.iloc[i]["search_location_id"]
@@ -208,8 +208,8 @@ for i in tqdm(range(len(sample))):
     alt_geo_bge_top.append(top_k_indices(alt_scores, alt_indices, K_ALT_GEO_BGE))
 
 
-# Для alternative geo оставляю оба источника — BGE и BM25. Они дополняют друг друга:
-# semantic retrieval лучше ловит смысл, а BM25 помогает на точных формулировках и редких терминах.
+# Для альтернативных локаций оставляю оба источника — BGE и BM25. Они дополняют друг друга:
+# семантический поиск лучше ловит смысл, а BM25 помогает на точных формулировках и редких терминах.
 print("\nЗагружаем BM25...")
 retriever = bm25s.BM25.load(str(BM25_DIR), load_corpus=False)
 stemmer = Stemmer.Stemmer("russian")
@@ -219,10 +219,10 @@ bm25_query_texts = (
     + sample["search_infm_params_text"].fillna("").astype(str)
 ).tolist()
 tokens = bm25s.tokenize(bm25_query_texts, stopwords=None, stemmer=stemmer)
-print("BM25 top-10000...")
+print("BM25: выбираю 10000 кандидатов...")
 bm25_wide, _ = retriever.retrieve(tokens, k=K_BM25_WIDE)
 global_bm25_top = bm25_wide[:, :K_GLOBAL]
-print("Формируем exact/alt GEO BM25...")
+print("Формируем BM25-кандидатов для точной и альтернативной локации...")
 local_bm25_top = []
 alt_geo_bm25_top = []
 for i in tqdm(range(len(sample))):
@@ -241,7 +241,7 @@ for i in tqdm(range(len(sample))):
             break
     local_bm25_top.append(np.asarray(exact_candidates, dtype=np.int64))
     alt_geo_bm25_top.append(np.asarray(alt_candidates, dtype=np.int64))
-print("\nMicrocat classifier...")
+print("\nКлассификатор microcat...")
 vectorizer = joblib.load(MICROCAT_VECTORIZER_PATH)
 classifier = joblib.load(MICROCAT_CLASSIFIER_PATH)
 X = vectorizer.transform(query_texts)
@@ -254,7 +254,7 @@ for i in range(len(sample)):
     pos = positions[i]
     order = np.argsort(decision[i, pos])[::-1]
     predicted_microcats.append(classes[pos[order]].tolist())
-print("Microcat BGE...")
+print("BGE внутри microcat...")
 microcat_bge_top = []
 microcat_sets = []
 for i in tqdm(range(len(sample))):
@@ -269,9 +269,9 @@ for i in tqdm(range(len(sample))):
     microcat_bge_top.append(top_k_indices(scores, indices, K_MICROCAT))
 
 
-# Сначала фиксирую текущий answer2 как baseline. В grid меняю только веса ALT-GEO источников,
-# поэтому итоговую delta можно интерпретировать именно как эффект нового retrieval-канала.
-print("\nСтроим answer2 baseline...")
+# Сначала фиксирую текущий answer2 как базовый вариант. В сетке меняю только веса источников по альтернативным локациям,
+# поэтому итоговый прирост можно интерпретировать именно как эффект нового канала поиска.
+print("\nСтроим базовый вариант answer2...")
 answer2_scores = []
 answer2_top = []
 answer2_recalls = []
@@ -303,11 +303,11 @@ for i in tqdm(range(len(sample))):
 answer2_recalls = np.asarray(answer2_recalls)
 answer2_mean = float(answer2_recalls.mean())
 print("\n" + "=" * 100)
-print("CURRENT ANSWER2 PIPELINE")
+print("ТЕКУЩИЙ ПАЙПЛАЙН ANSWER2")
 print("=" * 100)
 print(f"Recall@50: " f"{answer2_mean * 100:.3f}%")
 print("\n" + "=" * 115)
-print("ALT-GEO RETRIEVAL GRID")
+print("СЕТКА ВЕСОВ ПО АЛЬТЕРНАТИВНЫМ ЛОКАЦИЯМ")
 print("=" * 115)
 results = []
 for bge_weight in ALT_BGE_WEIGHTS:
@@ -354,12 +354,12 @@ for bge_weight in ALT_BGE_WEIGHTS:
         print(
             f"BGE={bge_weight:>4.2f} | "
             f"BM25={bm25_weight:>4.2f} | "
-            f"Recall={mean_recall * 100:6.3f}% | "
-            f"delta={delta:+.3f} pp | "
+            f"Recall@50={mean_recall * 100:6.3f}% | "
+            f"прирост={delta:+.3f} п.п. | "
             f"+={improved:>3} | "
             f"-={worse:>3} | "
-            f"changed_q={changed_queries:>4} | "
-            f"avg_changed={avg_changed:.2f}"
+            f"изменено_запросов={changed_queries:>4} | "
+            f"среднее_замен={avg_changed:.2f}"
         )
 result_df = (
     pd.DataFrame(results)
@@ -367,7 +367,7 @@ result_df = (
     .reset_index(drop=True)
 )
 print("\n" + "=" * 115)
-print("BEST ALT-GEO CONFIGS")
+print("ЛУЧШИЕ КОНФИГУРАЦИИ ПО АЛЬТЕРНАТИВНЫМ ЛОКАЦИЯМ")
 print("=" * 115)
 print(
     result_df.head(20).to_string(
@@ -381,15 +381,15 @@ print(
 )
 best = result_df.iloc[0]
 print("\n" + "=" * 90)
-print("SUMMARY")
+print("ИТОГ")
 print("=" * 90)
-print("Fresh sample:", f"{FRESH_START}:{FRESH_END}")
-print("Answer2 baseline:", f"{answer2_mean * 100:.3f}%")
-print("Best ALT BGE weight:", float(best["bge_weight"]))
-print("Best ALT BM25 weight:", float(best["bm25_weight"]))
-print("Best Recall:", f"{best['recall'] * 100:.3f}%")
-print("Increment over answer2:", f"{best['delta_pp']:+.3f} pp")
-print("Improved groups:", int(best["improved"]))
-print("Worse groups:", int(best["worse"]))
-print("Changed queries:", int(best["changed_queries"]))
-print("Average changed items/query:", f"{best['avg_changed']:.3f}")
+print("Свежий валидационный срез:", f"{FRESH_START}:{FRESH_END}")
+print("Базовый answer2:", f"{answer2_mean * 100:.3f}%")
+print("Лучший вес BGE для альтернативных локаций:", float(best["bge_weight"]))
+print("Лучший вес BM25 для альтернативных локаций:", float(best["bm25_weight"]))
+print("Лучший Recall:", f"{best['recall'] * 100:.3f}%")
+print("Прирост относительно answer2:", f"{best['delta_pp']:+.3f} п.п.")
+print("Групп с улучшением:", int(best["improved"]))
+print("Групп с ухудшением:", int(best["worse"]))
+print("Изменённых запросов:", int(best["changed_queries"]))
+print("Среднее число заменённых объявлений на запрос:", f"{best['avg_changed']:.3f}")
