@@ -1,10 +1,10 @@
-# Data
+# Данные
 
-The original task data and generated heavy artifacts are intentionally excluded from Git.
+Исходные данные задания и тяжёлые сгенерированные артефакты специально не хранятся в Git.
 
-## Input files supplied by the task
+## Исходные файлы задания
 
-Place these files in this directory:
+В эту папку нужно положить:
 
 ```text
 train.parquet
@@ -12,9 +12,9 @@ benchmark_queries.parquet
 benchmark_items.parquet
 ```
 
-## Generated artifacts
+## Генерируемые артефакты
 
-`build_train_assets.py` creates:
+Скрипт `build_train_assets.py` создаёт:
 
 ```text
 train_bge_embeddings.npy
@@ -22,14 +22,14 @@ train_bge_item_ids.npy
 train_bm25_index/
 ```
 
-`microcat_classifier.py` creates:
+Скрипт `microcat_classifier.py` создаёт:
 
 ```text
 microcat_vectorizer.joblib
 microcat_classifier.joblib
 ```
 
-`build_benchmark_assets.py` creates:
+Скрипт `build_benchmark_assets.py` создаёт:
 
 ```text
 benchmark_bge_embeddings.npy
@@ -37,4 +37,4 @@ benchmark_bge_item_ids.npy
 benchmark_bm25_index/
 ```
 
-The builders preserve the item order used by the final retrieval pipeline.
+Порядок item-ов при подготовке артефактов сохраняется и совпадает с порядком, который использует финальный retrieval-пайплайн.
