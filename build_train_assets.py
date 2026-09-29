@@ -33,7 +33,7 @@ def build_texts(items):
     descriptions = items["item_description_raw"].fillna("").astype(str).str.slice(0, 600)
     bge_texts = (titles + ". " + params + ". " + descriptions).tolist()
     # Для BM25 намеренно дублирую заголовок, чтобы дать ему больший лексический вес.
-    # На validation-срезах этот вариант стабильно работал лучше, чем одинаковый вес всех текстовых полей.
+    # На валидационных срезах этот вариант стабильно работал лучше, чем одинаковый вес всех текстовых полей.
     bm25_texts = (titles + " " + titles + " " + params + " " + descriptions).tolist()
     return bge_texts, bm25_texts
 
@@ -44,11 +44,11 @@ def ensure_bge_assets(items, texts):
         embeddings = np.load(BGE_EMBEDDINGS_PATH, mmap_mode="r")
         saved_ids = np.load(BGE_ITEM_IDS_PATH, allow_pickle=True)
         if embeddings.shape[0] != len(items) or not np.array_equal(saved_ids, item_ids):
-            raise RuntimeError("Существующие BGE-артефакты train не совпадают с порядком item_id в train.parquet.")
+            raise RuntimeError("Существующие BGE-артефакты обучающей выборки не совпадают с порядком item_id в train.parquet.")
         print("BGE-артефакты обучающей выборки уже существуют и согласованы.")
         return
     if BGE_EMBEDDINGS_PATH.exists() != BGE_ITEM_IDS_PATH.exists():
-        raise RuntimeError("Найден только один из BGE-артефактов train. Удалите неполный набор и запустите скрипт снова.")
+        raise RuntimeError("Найден только один из BGE-артефактов обучающей выборки. Удалите неполный набор и запустите скрипт снова.")
     device = select_device()
     print("Строим BGE-эмбеддинги обучающей выборки на устройстве", device)
     model = SentenceTransformer("BAAI/bge-m3", device=device)
@@ -82,7 +82,7 @@ def main():
     DATA_DIR.mkdir(exist_ok=True)
     items = load_items()
     bge_texts, bm25_texts = build_texts(items)
-    print("Уникальных объявлений в train:", len(items))
+    print("Уникальных объявлений в обучающей выборке:", len(items))
     ensure_bge_assets(items, bge_texts)
     ensure_bm25_index(bm25_texts)
     print("Артефакты обучающей выборки готовы.")
