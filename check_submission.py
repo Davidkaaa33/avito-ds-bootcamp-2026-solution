@@ -10,13 +10,13 @@ assert list(answer.columns) == ["query_id", "answer"]
 assert len(answer) == len(queries)
 assert answer["query_id"].tolist() == queries["query_id"].astype(str).tolist()
 valid_ids = set(items["item_id"].astype(str))
-# Отдельно проверяю типичные ошибки сабмита: неправильное число кандидатов, повторяющиеся IDs
-# и item_id, которых нет в benchmark corpus. Такие ошибки могли бы молча ухудшить Recall@50.
+# Отдельно проверяю типичные ошибки итогового файла: неправильное число кандидатов, повторяющиеся ID
+# и item_id, которых нет в тестовом корпусе. Такие ошибки могли бы незаметно ухудшить Recall@50.
 for row in answer.itertuples(index=False):
     ids = str(row.answer).split()
     assert len(ids) == 50
     assert len(set(ids)) == 50
     assert set(ids).issubset(valid_ids)
-print("Submission format: OK")
-print("Rows:", len(answer))
-print("Every query has 50 unique valid item_ids.")
+print("Формат итогового файла: корректный")
+print("Строк:", len(answer))
+print("Для каждого запроса указано 50 уникальных корректных item_id.")
