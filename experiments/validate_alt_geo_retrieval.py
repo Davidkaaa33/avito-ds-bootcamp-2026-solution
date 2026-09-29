@@ -89,7 +89,7 @@ print("Строк:", len(train))
 
 
 # Разбиение делаю по search_query, а не по отдельным строкам. Иначе одинаковый запрос мог бы оказаться
-# и в обучающей части, и в holdout, что заметно завысило бы оценку поиска кандидатов.
+# и в обучающей, и в отложенной части, что заметно завысило бы оценку поиска кандидатов.
 print("\nСтроим разбиение без пересечения запросов...")
 splitter = GroupShuffleSplit(n_splits=1, test_size=0.10, random_state=RANDOM_STATE)
 train_idx, val_idx = next(splitter.split(train, groups=train["search_query"]))
@@ -97,7 +97,7 @@ supervision = train.iloc[train_idx].copy()
 holdout = train.iloc[val_idx].copy()
 assert not (set(supervision["search_query"]) & set(holdout["search_query"]))
 print("Строк в обучающей части:", len(supervision))
-print("Строк в holdout:", len(holdout))
+print("Строк в отложенной части:", len(holdout))
 QUERY_COLUMNS = [
     "search_query",
     "search_location_id",
@@ -109,8 +109,8 @@ val_groups = holdout.groupby(QUERY_COLUMNS, dropna=False)["item_id"].agg(set).re
 shuffled = val_groups.sample(frac=1, random_state=123).reset_index(drop=True)
 assert len(shuffled) >= FRESH_END
 sample = shuffled.iloc[FRESH_START:FRESH_END].copy().reset_index(drop=True)
-print("Диапазон свежей validation-части:", f"{FRESH_START}:{FRESH_END}")
-print("Групп в свежей validation-части:", len(sample))
+print("Диапазон свежей валидационной части:", f"{FRESH_START}:{FRESH_END}")
+print("Групп в свежей валидационной части:", len(sample))
 ITEM_COLUMNS = [
     "item_id",
     "item_title_raw",
@@ -143,9 +143,9 @@ for mc in list(microcat_to_indices):
     microcat_to_indices[mc] = np.asarray(microcat_to_indices[mc], dtype=np.int64)
 
 
-# Географический prior строю только на обучающей части. Holdout специально не использую,
-# чтобы географическая статистика не подсматривала правильные ответы validation-части.
-print("\nСтроим географический prior для answer2...")
+# Географическую априорную статистику строю только на обучающей части. Отложенную часть специально не использую,
+# чтобы географическая статистика не подсматривала правильные ответы валидационной части.
+print("\nСтроим географическую априорную статистику для answer2...")
 geo_counts = (
     supervision.groupby(["search_location_id", "item_location_id"], dropna=False)
     .size()
@@ -354,12 +354,12 @@ for bge_weight in ALT_BGE_WEIGHTS:
         print(
             f"BGE={bge_weight:>4.2f} | "
             f"BM25={bm25_weight:>4.2f} | "
-            f"Recall={mean_recall * 100:6.3f}% | "
-            f"delta={delta:+.3f} pp | "
+            f"Recall@50={mean_recall * 100:6.3f}% | "
+            f"прирост={delta:+.3f} п.п. | "
             f"+={improved:>3} | "
             f"-={worse:>3} | "
-            f"changed_q={changed_queries:>4} | "
-            f"avg_changed={avg_changed:.2f}"
+            f"изменено_запросов={changed_queries:>4} | "
+            f"среднее_замен={avg_changed:.2f}"
         )
 result_df = (
     pd.DataFrame(results)
@@ -383,7 +383,7 @@ best = result_df.iloc[0]
 print("\n" + "=" * 90)
 print("ИТОГ")
 print("=" * 90)
-print("Свежий validation-срез:", f"{FRESH_START}:{FRESH_END}")
+print("Свежий валидационный срез:", f"{FRESH_START}:{FRESH_END}")
 print("Базовый answer2:", f"{answer2_mean * 100:.3f}%")
 print("Лучший вес BGE для альтернативных локаций:", float(best["bge_weight"]))
 print("Лучший вес BM25 для альтернативных локаций:", float(best["bm25_weight"]))
