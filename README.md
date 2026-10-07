@@ -1,27 +1,27 @@
-# Avito Data Science Bootcamp 2026 — Candidate Retrieval
+# Avito Data Science Bootcamp 2026 — Поиск кандидатов
 
-Hybrid candidate-generation system for service search.
+Гибридная система генерации кандидатов для поиска услуг.
 
-> **Platform Recall@50: 0.831562**
+> **Recall@50 на платформе: 0.831562**
 
 | | |
 | --- | --- |
-| **Goal** | return 50 relevant listings per query |
-| **Metric** | Recall@50 |
-| **Retrieval** | BM25 · BGE-M3 · location · microcategory · history |
-| **Fusion** | weighted Reciprocal Rank Fusion |
-| **Validation** | query-disjoint tuning + independent confirmation slices |
-| **Reproducibility** | deterministic asset builders + exact submitted file |
+| **Задача** | вернуть 50 релевантных объявлений для каждого запроса |
+| **Метрика** | Recall@50 |
+| **Поиск** | BM25 · BGE-M3 · география · микрокатегория · история запросов |
+| **Объединение** | взвешенный Reciprocal Rank Fusion |
+| **Валидация** | разбиение без пересечения запросов + отдельные срезы подбора и проверки |
+| **Воспроизводимость** | детерминированная сборка артефактов + точный отправленный файл |
 
-## Problem
+## Задача
 
-For each search query, the system must return exactly **50 unique item IDs** from the benchmark corpus.
+Для каждого поискового запроса система должна вернуть ровно **50 уникальных item_id** из тестового корпуса.
 
-The objective is high-recall candidate generation: retrieve as many relevant listings as possible before a potential downstream ranking stage.
+Цель — получить кандидатный пул с высокой полнотой: найти как можно больше релевантных объявлений до возможного последующего этапа ранжирования.
 
-## Data
+## Данные
 
-Expected source files:
+Ожидаемые исходные файлы:
 
 ```text
 data/
@@ -30,85 +30,85 @@ data/
 └── benchmark_items.parquet
 ```
 
-Training data is used for query history, microcategory supervision, geographic statistics and offline validation. Benchmark files define the queries and candidate item corpus.
+Обучающая выборка используется для истории запросов, обучения модели микрокатегорий, географической статистики и офлайн-валидации. Benchmark-файлы задают поисковые запросы и корпус объявлений-кандидатов.
 
-Large parquet files, embeddings and BM25 indexes are intentionally excluded from Git and rebuilt locally. See [data/README.md](data/README.md).
+Большие parquet-файлы, эмбеддинги и BM25-индексы намеренно не хранятся в Git и пересобираются локально. Подробнее — в [data/README.md](data/README.md).
 
-## Retrieval pipeline
+## Пайплайн поиска
 
 ```mermaid
 flowchart LR
-    Q[Query] --> BM[BM25]
+    Q[Запрос] --> BM[BM25]
     Q --> BG[BGE-M3]
-    Q --> GEO[Location retrieval]
-    Q --> MC[Microcategory]
-    Q --> H[Query history]
+    Q --> GEO[Поиск по географии]
+    Q --> MC[Микрокатегория]
+    Q --> H[История запроса]
 
-    GEO --> JOINT[Location × microcategory]
+    GEO --> JOINT[География × микрокатегория]
     MC --> JOINT
-    H --> HP[History prototype]
+    H --> HP[Прототип истории]
 
-    BM --> RRF[Weighted RRF]
+    BM --> RRF[Взвешенный RRF]
     BG --> RRF
     GEO --> RRF
     MC --> RRF
     JOINT --> RRF
     HP --> RRF
 
-    RRF --> BONUS[Geo / microcat bonuses]
-    BONUS --> TOP[Top 50]
+    RRF --> BONUS[Бонусы географии / микрокатегории]
+    BONUS --> TOP[Итоговые Top 50]
 ```
 
 ### BM25
 
-Provides the lexical channel using query text plus optional parameters. Russian stemming is applied, and a wide ranking is reused for global and location-filtered retrieval.
+Даёт лексический канал поиска по тексту запроса и дополнительным параметрам. Используется русский стемминг, а один широкий список кандидатов переиспользуется для глобального и географически ограниченного поиска.
 
 ### BGE-M3
 
-Provides semantic retrieval over normalized item embeddings. The pipeline uses both global search and search restricted to exact or likely alternative locations.
+Даёт семантический поиск по нормализованным эмбеддингам объявлений. Используется как глобальный поиск, так и поиск внутри точной или вероятной альтернативной географии.
 
-### Microcategory
+### Микрокатегория
 
-A lightweight TF-IDF + LinearSVC model predicts likely service microcategories. Validation is grouped by `search_query` so the same query text cannot appear in both train and validation.
+Лёгкая модель TF-IDF + LinearSVC предсказывает наиболее вероятные микрокатегории услуги. Валидация группируется по `search_query`, поэтому один и тот же текст запроса не может попасть одновременно в обучающую и валидационную части.
 
-### Geography
+### География
 
-The system estimates likely item locations for each search location from training interactions and uses them as extra retrieval channels and small post-fusion priors.
+По обучающим взаимодействиям система оценивает вероятные `item_location` для каждого `search_location` и использует их как дополнительные каналы поиска и небольшие априорные бонусы после объединения результатов.
 
-### Query history
+### История запросов
 
-Repeated queries contribute exact historical items, historical microcategories and a prototype embedding built from previously relevant items.
+Для повторяющихся запросов используются точные исторические объявления, исторические микрокатегории и прототип-эмбеддинг, построенный по ранее релевантным объявлениям.
 
-## Fusion
+## Объединение результатов
 
-Different retrievers produce scores on incompatible scales, so the system combines **rank positions** instead of raw scores:
+Разные поисковые каналы возвращают оценки в несовместимых шкалах, поэтому система объединяет **позиции в ранжированных списках**, а не сырые score:
 
 ```text
 score(item) += weight / (RRF_K + rank)
 RRF_K = 60
 ```
 
-Small location, microcategory and geographic-prior bonuses are applied after fusion.
+После RRF добавляются небольшие бонусы за географию, микрокатегорию и географическую априорную вероятность.
 
-The final stage removes duplicates, inserts valid historical matches where available and backfills from BM25 until exactly 50 items remain.
+На финальном этапе удаляются дубликаты, при наличии добавляются корректные исторические совпадения, а недостающие позиции дополняются кандидатами из BM25 до ровно 50 объявлений.
 
-## Validation and experiments
+## Валидация и эксперименты
 
-The core rule is **query-disjoint validation**.
+Главный принцип — **валидация без пересечения одинаковых запросов**.
 
-`GroupShuffleSplit` groups by `search_query`, preventing identical query text from leaking across train and validation. Several experiments then use separate tuning and confirmation slices.
+`GroupShuffleSplit` группирует данные по `search_query`, поэтому одинаковый текст запроса не может попасть одновременно в train и validation. Для части экспериментов дополнительно используются отдельные срезы подбора и независимой проверки.
 
-The `experiments/` directory tests individual additions while keeping the rest of the pipeline fixed, including:
+В директории `experiments/` отдельные изменения проверяются при фиксированном остальном пайплайне, в том числе:
 
-- alternative geographic retrieval;
-- geographic-prior weighting;
-- location × microcategory retrieval;
-- historical prototype retrieval;
-- history-weight variants.
+- поиск по альтернативной географии;
+- настройка географического приора;
+- поиск по сочетанию географии и микрокатегории;
+- поиск по историческому прототипу;
+- разные веса исторического сигнала.
 
-Experiments track not only mean Recall@50 but also how many queries improve or regress. Components that did not hold consistently were not retained.
+Эксперименты учитывают не только средний Recall@50, но и число улучшившихся и ухудшившихся запросов. Компоненты, которые не давали стабильного прироста, в финальный пайплайн не включались.
 
-## Asset preparation
+## Подготовка артефактов
 
 ```bash
 python build_train_assets.py
@@ -116,7 +116,7 @@ python microcat_classifier.py
 python build_benchmark_assets.py
 ```
 
-These scripts build:
+Скрипты создают:
 
 ```text
 train_bge_embeddings.npy
@@ -131,9 +131,9 @@ benchmark_bge_item_ids.npy
 benchmark_bm25_index/
 ```
 
-The builders verify that embedding rows remain aligned with the corresponding item IDs.
+При сборке проверяется, что строки эмбеддингов соответствуют правильному порядку item_id.
 
-## Reproduce the submission
+## Воспроизведение решения
 
 ```bash
 python -m venv .venv
@@ -147,34 +147,34 @@ python solution.py
 python check_submission.py
 ```
 
-`check_submission.py` verifies query order, exactly 50 unique candidates per query and that all returned IDs exist in the benchmark corpus.
+`check_submission.py` проверяет порядок запросов, наличие ровно 50 уникальных кандидатов на каждый запрос и то, что все возвращаемые item_id существуют в тестовом корпусе.
 
-## Submission integrity
+## Целостность отправленного решения
 
 ```text
 Recall@50: 0.831562
 SHA-256: 093072acc21b856f79a982cf67b1d7ffa9f57252387c1b99b4cdea7c66f05cd6
 ```
 
-The exact submitted `answer.csv` is committed. CI checks Python syntax, diff hygiene and the submission hash.
+Точный отправленный файл `answer.csv` сохранён в репозитории. CI проверяет синтаксис Python, корректность diff и SHA-256 итогового файла.
 
-## Repository map
+## Структура репозитория
 
-| Path | Purpose |
+| Путь | Назначение |
 | --- | --- |
-| `solution.py` | final retrieval + fusion pipeline |
-| `build_train_assets.py` | train embeddings + BM25 |
-| `build_benchmark_assets.py` | benchmark embeddings + BM25 |
-| `microcat_classifier.py` | query → microcategory model |
-| `experiments/` | controlled validation experiments |
-| `check_submission.py` | output validation |
-| `data/README.md` | data / artifact contract |
-| `answer.csv` | exact submitted file |
+| `solution.py` | финальный пайплайн поиска и объединения кандидатов |
+| `build_train_assets.py` | эмбеддинги и BM25 для обучающей выборки |
+| `build_benchmark_assets.py` | эмбеддинги и BM25 для benchmark-корпуса |
+| `microcat_classifier.py` | модель запрос → микрокатегория |
+| `experiments/` | контролируемые валидационные эксперименты |
+| `check_submission.py` | проверка итогового файла |
+| `data/README.md` | описание входных данных и генерируемых артефактов |
+| `answer.csv` | точный отправленный файл |
 
-## Limitations
+## Ограничения
 
-- Original competition data is not distributed in the repository.
-- BGE-M3 asset generation is expensive without an accelerator.
-- Historical signals mainly help warm/repeated queries.
-- RRF weights are empirically tuned rather than learned end to end.
-- Recall@50 measures candidate coverage, not final ranking quality.
+- Исходные данные соревнования не распространяются в этом репозитории.
+- Генерация BGE-M3-эмбеддингов без GPU или другого ускорителя занимает заметное время.
+- Исторические сигналы в основном полезны для повторяющихся запросов.
+- Веса RRF подобраны экспериментально, а не обучены end-to-end.
+- Recall@50 измеряет полноту кандидатного пула, а не качество финального ранжирования.
