@@ -1,12 +1,12 @@
-# Data and generated assets
+# Данные и генерируемые артефакты
 
-The original competition parquet files and heavy retrieval artifacts are intentionally not stored in Git.
+Исходные parquet-файлы соревнования и тяжёлые артефакты поиска намеренно не хранятся в Git.
 
-This directory acts as the input/output contract for the retrieval pipeline.
+Эта директория задаёт входные данные и генерируемые файлы, необходимые для воспроизведения пайплайна.
 
-## Source files
+## Исходные файлы
 
-Place these files in `data/` before running the project:
+Перед запуском проекта положите в `data/`:
 
 ```text
 train.parquet
@@ -16,34 +16,34 @@ benchmark_items.parquet
 
 ### `train.parquet`
 
-Used for:
+Используется для:
 
-- query / item interaction history;
-- query → microcategory supervision;
-- geographic priors;
-- repeated-query signals;
-- historical item prototypes;
-- offline validation experiments.
+- истории взаимодействий запрос → объявление;
+- обучения модели запрос → микрокатегория;
+- построения географических приоров;
+- сигналов повторяющихся запросов;
+- исторических прототипов объявлений;
+- офлайн-валидации экспериментов.
 
 ### `benchmark_queries.parquet`
 
-Used as the benchmark query set. The final `answer.csv` preserves its query order exactly.
+Содержит benchmark-запросы. Итоговый `answer.csv` сохраняет их исходный порядок.
 
 ### `benchmark_items.parquet`
 
-Defines the candidate item corpus for the benchmark. Every item ID returned by the final submission must exist in this file.
+Определяет корпус объявлений-кандидатов. Каждый item_id в итоговом ответе должен присутствовать в этом файле.
 
 ---
 
-## Generated training assets
+## Артефакты обучающей выборки
 
-Run:
+Запуск:
 
 ```bash
 python build_train_assets.py
 ```
 
-This creates:
+Создаёт:
 
 ```text
 train_bge_embeddings.npy
@@ -51,38 +51,38 @@ train_bge_item_ids.npy
 train_bm25_index/
 ```
 
-The embedding file and item-ID file are positionally aligned. The builder checks existing artifacts before reusing them.
+Файл эмбеддингов и файл item_id позиционно синхронизированы. Скрипт проверяет существующие артефакты перед повторным использованием.
 
 ---
 
-## Generated microcategory assets
+## Артефакты модели микрокатегорий
 
-Run:
+Запуск:
 
 ```bash
 python microcat_classifier.py
 ```
 
-This creates:
+Создаёт:
 
 ```text
 microcat_vectorizer.joblib
 microcat_classifier.joblib
 ```
 
-The model uses TF-IDF word/character n-grams with LinearSVC and a query-disjoint validation split.
+Модель использует словные и символьные TF-IDF n-граммы, LinearSVC и валидационное разбиение без пересечения одинаковых запросов.
 
 ---
 
-## Generated benchmark assets
+## Артефакты benchmark-корпуса
 
-Run:
+Запуск:
 
 ```bash
 python build_benchmark_assets.py
 ```
 
-This creates:
+Создаёт:
 
 ```text
 benchmark_bge_embeddings.npy
@@ -90,17 +90,17 @@ benchmark_bge_item_ids.npy
 benchmark_bm25_index/
 ```
 
-The item ordering used while building these artifacts is the same ordering expected by `solution.py`.
+Порядок объявлений при построении артефактов совпадает с порядком, который ожидает `solution.py`.
 
 ---
 
-## Why large artifacts are excluded
+## Почему большие артефакты не хранятся в Git
 
-Embeddings and retrieval indexes are derived artifacts rather than source code. Keeping them out of Git:
+Эмбеддинги и поисковые индексы являются производными файлами, а не исходным кодом. Исключение их из Git:
 
-- avoids repository bloat;
-- keeps the code review surface small;
-- makes the build process explicit;
-- allows the same artifacts to be regenerated from the source parquet files.
+- не раздувает размер репозитория;
+- оставляет code review сфокусированным на коде;
+- делает процесс сборки явным и воспроизводимым;
+- позволяет пересоздать артефакты из исходных parquet-файлов.
 
-The repository therefore stores the **builders and validation logic**, not large binary outputs.
+Поэтому в репозитории хранятся **скрипты сборки и проверки**, а не тяжёлые бинарные результаты.
