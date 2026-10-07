@@ -27,7 +27,7 @@ benchmark_items.parquet
 
 ### `benchmark_queries.parquet`
 
-Содержит benchmark-запросы. Итоговый `answer.csv` сохраняет их исходный порядок.
+Содержит тестовые запросы. Итоговый `answer.csv` сохраняет их исходный порядок.
 
 ### `benchmark_items.parquet`
 
@@ -74,7 +74,7 @@ microcat_classifier.joblib
 
 ---
 
-## Артефакты benchmark-корпуса
+## Артефакты тестового корпуса
 
 Запуск:
 
